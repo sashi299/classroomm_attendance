@@ -1376,8 +1376,8 @@
                             </div>
                         </div>
                         <div style="display:flex; gap:10px; margin-bottom:10px;">
-                            <button type="button" class="btn-primary" id="btn-camera-start" onclick="startEnrollCamera()" style="flex:1;">Start Camera</button>
-                            <button type="button" class="btn-warning" id="btn-camera-capture" onclick="captureEnrollFrame()" style="flex:1;" disabled>Capture Sample</button>
+                            <button type="button" class="btn-primary" id="btn-camera-start" onclick="startEnrollCamera()" style="flex:1; cursor:pointer;">Start / Refresh Camera</button>
+                            <button type="button" class="btn-warning" id="btn-camera-capture" onclick="captureEnrollFrame()" style="flex:1; cursor:pointer; background:var(--accent-blue); color:#fff;">📸 Capture Sample</button>
                         </div>
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
                             <span style="font-size:0.8rem; font-weight:600;">Progress: <span id="enroll-count-text">0 / 20</span></span>
@@ -2371,6 +2371,7 @@
             cameraBtn.style.background = 'var(--accent-blue)';
             uploadCont.style.display = 'none';
             cameraCont.style.display = 'block';
+            startEnrollCamera();
         } else {
             cameraBtn.style.background = 'rgba(255,255,255,0.05)';
             uploadBtn.style.background = 'var(--accent-blue)';
@@ -2392,7 +2393,7 @@
             video.style.display = 'block';
             if (imgFeed) imgFeed.style.display = 'none';
             btn.innerText = "Camera Active";
-            btn.disabled = true;
+            btn.disabled = false;
             captureBtn.disabled = false;
             updatePoseHint();
         } catch (err) {
@@ -2405,7 +2406,7 @@
                 if (video) video.style.display = 'none';
             }
             btn.innerText = "Camera Active (Live Stream)";
-            btn.disabled = true;
+            btn.disabled = false;
             captureBtn.disabled = false;
             updatePoseHint();
         }

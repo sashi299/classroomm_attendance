@@ -1707,10 +1707,12 @@
     function fetchClassroomCameras() {
         const dept = isAdmin ? activeDept : '{{ department_code }}';
         const sec = document.getElementById('live-section-select').value;
+        const select = document.getElementById('live-camera-select');
+        const prevSelected = select ? select.value : 'Default';
+
         fetch(`/api/cameras/registry?department=${dept}&section=${sec}&active_only=true`)
         .then(res => res.json())
         .then(data => {
-            const select = document.getElementById('live-camera-select');
             let html = '<option value="Default">📹 Matrix IP Camera (CCTV)</option><option value="Laptop Webcam">💻 Laptop Webcam (Integrated)</option>';
             if (data.cameras && data.cameras.length > 0) {
                 data.cameras.forEach(c => {
@@ -1720,11 +1722,16 @@
                 });
             }
             select.innerHTML = html;
+            if (prevSelected && Array.from(select.options).some(o => o.value === prevSelected)) {
+                select.value = prevSelected;
+            }
             switchCameraView();
         })
         .catch(() => {
-            const select = document.getElementById('live-camera-select');
             select.innerHTML = '<option value="Default">📹 Matrix IP Camera (CCTV)</option><option value="Laptop Webcam">💻 Laptop Webcam (Integrated)</option>';
+            if (prevSelected && Array.from(select.options).some(o => o.value === prevSelected)) {
+                select.value = prevSelected;
+            }
             switchCameraView();
         });
     }
@@ -2298,8 +2305,6 @@
         activeDept = deptCode;
         const badge = document.getElementById('active-dept-badge');
         if (badge) badge.innerText = `${deptCode} Department`;
-        const img = document.getElementById('live-stream-img');
-        if (img) img.src = '/video_feed?dept=' + deptCode + '&t=' + new Date().getTime();
         fetchAttendanceData();
         fetchStudentData();
         fetchHistoryData();

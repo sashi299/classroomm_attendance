@@ -210,10 +210,28 @@ def generate_mjpeg_frames(dept_code, section="B", cam_name="Default"):
     engine = face_engine_manager.get_engine(dept_code)
     camera = camera_manager.get_camera(dept_code, section, cam_name=cam_name)
     fps_start = time.time(); f_count = 0; current_fps = 30.0
+    consecutive_failures = 0
+
     while True:
-        success, frame = camera.read_frame() if camera else (False, None)
+        success, frame = camera.read_frame() if (camera and camera._is_connected) else (False, None)
         if not success or frame is None:
-            time.sleep(0.01); continue
+            consecutive_failures += 1
+            if consecutive_failures > 15:
+                # Fallback to local webcam if requested RTSP/Camera source is offline
+                camera = camera_manager.get_camera(dept_code, section, cam_name="Laptop Webcam")
+                if camera:
+                    success, frame = camera.read_frame()
+
+            if not success or frame is None:
+                # Generate clean status banner frame instead of black box
+                blank = np.zeros((480, 640, 3), dtype=np.uint8)
+                cv2.putText(blank, f"CAMERA CONNECTING [{dept_code}-{section}]...", (60, 240),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 215, 255), 2)
+                yield _encode_frame_as_mjpeg(blank)
+                time.sleep(0.1)
+                continue
+
+        consecutive_failures = 0
         f_count += 1
 
         if not system_state_manager.is_exam_mode_enabled() and (f_count % config.FRAME_SKIP == 0 or not async_recognizer.get_results()):

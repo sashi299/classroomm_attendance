@@ -125,8 +125,8 @@ class CameraStream:
         logger.info("  Resolution: %dx%d", width, height)
         logger.info("  FPS: %.1f", fps if fps > 0 else 0.0)
 
-        if self._source_type == "rtsp":
-            self._start_reader_thread()
+        # Start background reader thread for zero latency on webcam and RTSP
+        self._start_reader_thread()
 
         return True
 
@@ -153,14 +153,16 @@ class CameraStream:
             self._is_connected = False
             return False, None
 
-        if self._source_type == "rtsp":
-            with self._lock:
-                if self._latest_frame is not None:
-                    return True, self._latest_frame.copy()
-                return False, None
+        with self._lock:
+            if self._latest_frame is not None:
+                return True, self._latest_frame.copy()
 
         try:
             ret, frame = self._cap.read()
+            if ret and frame is not None:
+                with self._lock:
+                    self._latest_frame = frame
+                return True, frame.copy()
         except Exception as e:
             logger.warning("Exception during frame read: %s", e)
             self._consecutive_failures += 1

@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, Tuple, Union
 
 from face_engine import FaceEngine
 from database import DatabaseManager
+from config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -100,22 +101,47 @@ class FaceEngineManager:
         self.reload_engine(department_code)
 
     def get_student_details(self, department_code: str, db_manager: DatabaseManager) -> List[dict]:
-        engine = self.get_engine(department_code)
-        registered_info = engine.get_registered_students_info()
-        db_students = db_manager.get_students_by_department(department_code)
+        dept_code = (department_code or "CSD").strip().upper()
+        if dept_code == "ALL":
+            merged = []
+            active_depts = getattr(Config, "DEFAULT_DEPARTMENT_CODES", ["CSD", "CSM", "CSE", "CSC", "MECH", "CIVIL", "EEE", "ECE"])
+            for d in active_depts:
+                merged.extend(self.get_student_details(d, db_manager))
+            return merged
+
+        engine = self.get_engine(dept_code)
+        registered_info = engine.get_registered_students_info() if engine else []
+        db_students = db_manager.get_students(department=dept_code) if db_manager else []
         db_map = {str(s["student_id"]): s for s in db_students}
 
         merged = []
+        seen_sids = set()
+
         for info in registered_info:
             sid = str(info["student_id"])
+            seen_sids.add(sid)
             student_data = db_map.get(sid, {"year_level": "N/A", "section": "N/A", "academic_year": "N/A", "semester": "N/A", "is_active": True})
+            is_act = student_data.get("is_active", True)
             merged.append({
                 "student_id": sid, "student_name": info["student_name"],
-                "photo_count": info["photo_count"], "source_file": info["source_file"],
-                "year_level": student_data.get("year_level"), "section": student_data.get("section"),
-                "academic_year": student_data.get("academic_year"), "semester": student_data.get("semester"),
-                "is_active": student_data.get("is_active"), "department": department_code
+                "photo_count": info["photo_count"], "source_file": info.get("source_file", "-"),
+                "year_level": student_data.get("year_level", "N/A"), "section": student_data.get("section", "B"),
+                "academic_year": student_data.get("academic_year", "N/A"), "semester": student_data.get("semester", "N/A"),
+                "status": "Active" if is_act else "Inactive", "department_code": dept_code, "department": dept_code
             })
+
+        for s in db_students:
+            sid = str(s["student_id"])
+            if sid not in seen_sids:
+                is_act = s.get("is_active", True)
+                merged.append({
+                    "student_id": sid, "student_name": s["name"],
+                    "photo_count": 0, "source_file": "-",
+                    "year_level": s.get("year_level", "N/A"), "section": s.get("section", "B"),
+                    "academic_year": s.get("academic_year", "N/A"), "semester": s.get("semester", "N/A"),
+                    "status": "Active" if is_act else "Inactive", "department_code": dept_code, "department": dept_code
+                })
+
         return merged
 
     def get_student_photo_path(self, department_code: str, student_id: str) -> Optional[str]:

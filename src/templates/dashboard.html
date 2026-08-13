@@ -141,6 +141,8 @@
             border: 1px solid var(--card-border);
             padding: 6px 8px;
             border-radius: 12px;
+            position: relative;
+            z-index: 100;
         }
 
         .nav-tab-btn {
@@ -157,6 +159,13 @@
             align-items: center;
             gap: 8px;
             transition: all 0.2s ease;
+            user-select: none;
+            position: relative;
+            z-index: 101;
+        }
+
+        .nav-tab-btn * {
+            pointer-events: none;
         }
 
         .nav-tab-btn:hover {
@@ -171,13 +180,13 @@
         }
 
         .tab-content {
-            display: none;
+            display: none !important;
             flex-direction: column;
             gap: 24px;
         }
 
         .tab-content.active {
-            display: flex;
+            display: flex !important;
         }
 
         /* --- Live Video Feed Card --- */
@@ -1645,16 +1654,15 @@
     let activeDept = "{{ department_code }}";
 
     function switchTab(tabName) {
+        console.log("Switching tab to:", tabName);
         document.querySelectorAll('.nav-tab-btn').forEach(btn => btn.classList.remove('active'));
         document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
 
         const targetBtn = document.getElementById(`tab-btn-${tabName}`);
         const targetContent = document.getElementById(`tab-content-${tabName}`);
 
-        if (targetBtn && targetContent) {
-            targetBtn.classList.add('active');
-            targetContent.classList.add('active');
-        }
+        if (targetBtn) targetBtn.classList.add('active');
+        if (targetContent) targetContent.classList.add('active');
 
         if (tabName === 'live') fetchAttendanceData();
         if (tabName === 'students') fetchStudentData();

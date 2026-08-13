@@ -1368,6 +1368,7 @@
                     <!-- Mode B: Camera Capture -->
                     <div id="enroll-container-camera" style="display:none;">
                         <div style="position:relative; background:#000; border-radius:8px; overflow:hidden; aspect-ratio: 4/3; margin-bottom:10px; border:1px solid var(--card-border);">
+                            <img id="enroll-video-feed" style="width:100%; height:100%; object-fit: cover; display:none;" />
                             <video id="enroll-video" autoplay playsinline muted style="width:100%; height:100%; object-fit: cover;"></video>
                             <canvas id="enroll-canvas" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none;"></canvas>
                             <div id="enroll-pose-hint" style="position:absolute; bottom:10px; left:10px; right:10px; background:rgba(15,23,42,0.8); color:#fff; padding:6px 12px; border-radius:4px; font-size:0.75rem; text-align:center; border-left:3px solid var(--accent-blue);">
@@ -2381,19 +2382,32 @@
 
     async function startEnrollCamera() {
         const video = document.getElementById('enroll-video');
+        const imgFeed = document.getElementById('enroll-video-feed');
         const btn = document.getElementById('btn-camera-start');
         const captureBtn = document.getElementById('btn-camera-capture');
 
         try {
             enrollStream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
             video.srcObject = enrollStream;
+            video.style.display = 'block';
+            if (imgFeed) imgFeed.style.display = 'none';
             btn.innerText = "Camera Active";
             btn.disabled = true;
             captureBtn.disabled = false;
             updatePoseHint();
         } catch (err) {
-            console.error("Camera access denied:", err);
-            alert("Could not access camera. Please check permissions.");
+            console.warn("Direct webcam access blocked by OpenCV hardware lock. Falling back to server stream:", err);
+            const dept = document.getElementById('modal-dept') ? document.getElementById('modal-dept').value : activeDept;
+            const sec = document.getElementById('modal-student-sec') ? document.getElementById('modal-student-sec').value : 'B';
+            if (imgFeed) {
+                imgFeed.src = `/video_feed?dept=${dept}&section=${sec}&t=${new Date().getTime()}`;
+                imgFeed.style.display = 'block';
+                if (video) video.style.display = 'none';
+            }
+            btn.innerText = "Camera Active (Live Stream)";
+            btn.disabled = true;
+            captureBtn.disabled = false;
+            updatePoseHint();
         }
     }
 
@@ -2403,7 +2417,10 @@
             enrollStream = null;
         }
         const video = document.getElementById('enroll-video');
-        if (video) video.srcObject = null;
+        if (video) { video.srcObject = null; video.style.display = 'none'; }
+        const imgFeed = document.getElementById('enroll-video-feed');
+        if (imgFeed) { imgFeed.src = ''; imgFeed.style.display = 'none'; }
+
         const btn = document.getElementById('btn-camera-start');
         if (btn) {
             btn.innerText = "Start Camera";
@@ -2434,7 +2451,20 @@
         if (capturedSamples.length >= MAX_SAMPLES) return;
 
         const video = document.getElementById('enroll-video');
-        if (!video || video.videoWidth === 0 || video.readyState < 2) {
+        const imgFeed = document.getElementById('enroll-video-feed');
+        const canvas = document.createElement('canvas');
+
+        if (video && video.videoWidth > 0 && video.readyState >= 2) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0);
+        } else if (imgFeed && (imgFeed.naturalWidth > 0 || imgFeed.width > 0)) {
+            canvas.width = imgFeed.naturalWidth || imgFeed.width || 640;
+            canvas.height = imgFeed.naturalHeight || imgFeed.height || 480;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(imgFeed, 0, 0, canvas.width, canvas.height);
+        } else {
             alert("Camera not ready. Please wait a moment or click 'Start Camera'.");
             return;
         }

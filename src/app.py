@@ -216,20 +216,25 @@ def generate_mjpeg_frames(dept_code, section="B", cam_name="Default"):
         success, frame = camera.read_frame() if (camera and camera._is_connected) else (False, None)
         if not success or frame is None:
             consecutive_failures += 1
-            if consecutive_failures > 15:
-                # Fallback to local webcam if requested RTSP/Camera source is offline
-                camera = camera_manager.get_camera(dept_code, section, cam_name="Laptop Webcam")
-                if camera:
-                    success, frame = camera.read_frame()
-
-            if not success or frame is None:
-                # Generate clean status banner frame instead of black box
-                blank = np.zeros((480, 640, 3), dtype=np.uint8)
-                cv2.putText(blank, f"CAMERA CONNECTING [{dept_code}-{section}]...", (60, 240),
+            # Generate clear status frame informing user to select Laptop Webcam if CCTV is offline
+            blank = np.zeros((480, 640, 3), dtype=np.uint8)
+            cv2.rectangle(blank, (20, 20), (620, 460), (35, 25, 20), -1)
+            cv2.rectangle(blank, (20, 20), (620, 460), (70, 50, 40), 2)
+            if "laptop" in str(cam_name).lower() or "webcam" in str(cam_name).lower():
+                cv2.putText(blank, f"💻 WEBCAM CONNECTING [{dept_code}-{section}]...", (60, 220),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 215, 255), 2)
-                yield _encode_frame_as_mjpeg(blank)
-                time.sleep(0.1)
-                continue
+                cv2.putText(blank, "Please check camera permissions", (60, 270),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
+            else:
+                cv2.putText(blank, f"📹 CCTV CAMERA OFFLINE [{dept_code}-{section}]", (50, 200),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 0, 255), 2)
+                cv2.putText(blank, "Matrix RTSP stream (192.168.1.126) unreachable", (50, 250),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 200, 200), 1)
+                cv2.putText(blank, "Select 'Laptop Webcam' from dropdown menu above", (50, 300),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+            yield _encode_frame_as_mjpeg(blank)
+            time.sleep(0.2)
+            continue
 
         consecutive_failures = 0
         f_count += 1

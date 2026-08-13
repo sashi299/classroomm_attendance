@@ -86,8 +86,8 @@ class CameraStream:
 
         try:
             if self._source_type == "rtsp":
-                # Fast RTSP FFMPEG options
-                os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;udp|max_delay;500000"
+                # Fast RTSP FFMPEG options with 1s network socket timeout
+                os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;udp|max_delay;500000|stimeout;1000000"
                 self._cap = cv2.VideoCapture(self._capture_arg, cv2.CAP_FFMPEG)
                 if self._cap is not None:
                     self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)

@@ -2,7 +2,8 @@
 camera.py - RTSP / Webcam / Video file stream handler.
 
 Manages OpenCV VideoCapture with robust connection handling,
-automatic reconnection on failure, and clean resource cleanup.
+automatic reconnection on failure, clean resource cleanup, and
+asynchronous background thread reading for RTSP streams.
 
 Supports three source types (auto-detected from RTSP_URL config):
   - Integer (e.g. "0")    -> local webcam
@@ -11,6 +12,8 @@ Supports three source types (auto-detected from RTSP_URL config):
 """
 
 import time
+import os
+import threading
 import logging
 from typing import Optional, Tuple
 
@@ -30,9 +33,7 @@ MAX_READ_FAILURES = 30
 class CameraStream:
     """
     Robust camera/RTSP stream handler using OpenCV VideoCapture.
-
-    Handles connection, frame reading, automatic reconnection on
-    failure, and clean resource release.
+    Supports asynchronous thread reading for RTSP streams to eliminate latency.
     """
 
     def __init__(
@@ -40,25 +41,20 @@ class CameraStream:
         source: str,
         retry_delay: float = DEFAULT_RETRY_DELAY,
     ):
-        """
-        Initialize the CameraStream.
-
-        Args:
-            source: Camera source string from config. Can be:
-                - "0", "1", etc. for webcam index
-                - A file path for a recorded video
-                - An RTSP URL (e.g. rtsp://admin:pass@192.168.1.100:554/stream)
-            retry_delay: Seconds to wait before retrying a failed connection.
-        """
-        self.source = source
+        self.source = str(source)
         self.retry_delay = retry_delay
         self._cap: Optional[cv2.VideoCapture] = None
         self._consecutive_failures = 0
         self._is_connected = False
 
-        # Parse source type for logging and special handling
-        self._source_type = self._detect_source_type(source)
-        self._capture_arg = self._parse_source(source)
+        self._source_type = self._detect_source_type(self.source)
+        self._capture_arg = self._parse_source(self.source)
+
+        # Threading for zero-latency RTSP stream reading
+        self._lock = threading.Lock()
+        self._thread: Optional[threading.Thread] = None
+        self._thread_running = False
+        self._latest_frame: Optional[np.ndarray] = None
 
         logger.info("CameraStream initialized.")
         logger.info("  Source: %s", self.source)
@@ -67,8 +63,7 @@ class CameraStream:
 
     @staticmethod
     def _detect_source_type(source: str) -> str:
-        """Detect whether the source is a webcam index, file, or RTSP URL."""
-        stripped = source.strip()
+        stripped = str(source).strip()
         if stripped.isdigit():
             return "webcam"
         elif stripped.lower().startswith("rtsp://"):
@@ -78,31 +73,22 @@ class CameraStream:
 
     @staticmethod
     def _parse_source(source: str):
-        """
-        Convert the source string to the appropriate type for
-        cv2.VideoCapture (int for webcam, str for RTSP/file).
-        """
-        stripped = source.strip()
+        stripped = str(source).strip()
         if stripped.isdigit():
             return int(stripped)
         return stripped
 
     def connect(self) -> bool:
-        """
-        Open the video capture connection.
-
-        Returns:
-            True if connection was successful, False otherwise.
-        """
-        # Release any existing capture first
         self.release()
-
         logger.info("Connecting to camera source: %s ...", self.source)
 
         try:
             if self._source_type == "rtsp":
-                # Use FFMPEG backend for RTSP streams for better compatibility
+                # Fast RTSP FFMPEG options
+                os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;udp|max_delay;500000"
                 self._cap = cv2.VideoCapture(self._capture_arg, cv2.CAP_FFMPEG)
+                if self._cap is not None:
+                    self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             else:
                 self._cap = cv2.VideoCapture(self._capture_arg)
         except Exception as e:
@@ -111,15 +97,10 @@ class CameraStream:
             return False
 
         if self._cap is None or not self._cap.isOpened():
-            logger.error(
-                "Could not open camera source: %s. "
-                "Check that the source is valid and accessible.",
-                self.source,
-            )
+            logger.error("Could not open camera source: %s", self.source)
             self._is_connected = False
             return False
 
-        # Read camera properties for logging
         width = int(self._cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(self._cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         fps = self._cap.get(cv2.CAP_PROP_FPS)
@@ -131,20 +112,39 @@ class CameraStream:
         logger.info("  Resolution: %dx%d", width, height)
         logger.info("  FPS: %.1f", fps if fps > 0 else 0.0)
 
+        if self._source_type == "rtsp":
+            self._start_reader_thread()
+
         return True
 
-    def read_frame(self) -> Tuple[bool, Optional[np.ndarray]]:
-        """
-        Read a single frame from the video source.
+    def _start_reader_thread(self):
+        self._thread_running = True
+        self._thread = threading.Thread(target=self._reader_loop, daemon=True)
+        self._thread.start()
 
-        Returns:
-            Tuple of (success, frame). On failure, frame is None.
-            After MAX_READ_FAILURES consecutive failures, the stream
-            is considered disconnected.
-        """
+    def _reader_loop(self):
+        while self._thread_running and self._cap and self._cap.isOpened():
+            try:
+                ret, frame = self._cap.read()
+                if ret and frame is not None:
+                    with self._lock:
+                        self._latest_frame = frame
+                        self._consecutive_failures = 0
+                else:
+                    time.sleep(0.005)
+            except Exception:
+                time.sleep(0.01)
+
+    def read_frame(self) -> Tuple[bool, Optional[np.ndarray]]:
         if self._cap is None or not self._cap.isOpened():
             self._is_connected = False
             return False, None
+
+        if self._source_type == "rtsp":
+            with self._lock:
+                if self._latest_frame is not None:
+                    return True, self._latest_frame.copy()
+                return False, None
 
         try:
             ret, frame = self._cap.read()
@@ -152,45 +152,32 @@ class CameraStream:
             logger.warning("Exception during frame read: %s", e)
             self._consecutive_failures += 1
             if self._consecutive_failures >= MAX_READ_FAILURES:
-                logger.error(
-                    "Exceeded %d consecutive read failures. Stream disconnected.",
-                    MAX_READ_FAILURES,
-                )
                 self._is_connected = False
             return False, None
 
         if not ret or frame is None:
             self._consecutive_failures += 1
             if self._consecutive_failures >= MAX_READ_FAILURES:
-                logger.error(
-                    "Exceeded %d consecutive read failures. Stream disconnected.",
-                    MAX_READ_FAILURES,
-                )
                 self._is_connected = False
             return False, None
 
-        # Successful read — reset failure counter
         self._consecutive_failures = 0
         return True, frame
 
     def reconnect(self) -> bool:
-        """
-        Attempt to reconnect to the camera source after a failure.
-
-        Waits for retry_delay seconds before attempting, to avoid
-        busy-loop CPU waste.
-
-        Returns:
-            True if reconnection was successful, False otherwise.
-        """
-        logger.info(
-            "Attempting reconnection in %.1f seconds...", self.retry_delay
-        )
+        logger.info("Attempting reconnection in %.1f seconds...", self.retry_delay)
         time.sleep(self.retry_delay)
         return self.connect()
 
     def release(self):
-        """Release the video capture resources."""
+        self._thread_running = False
+        if self._thread is not None:
+            try:
+                self._thread.join(timeout=1.0)
+            except Exception:
+                pass
+            self._thread = None
+
         if self._cap is not None:
             try:
                 self._cap.release()
@@ -200,22 +187,17 @@ class CameraStream:
             finally:
                 self._cap = None
                 self._is_connected = False
+                self._latest_frame = None
 
     @property
     def is_connected(self) -> bool:
-        """Check whether the stream is currently connected and readable."""
         return self._is_connected and self._cap is not None and self._cap.isOpened()
 
     @property
     def source_type(self) -> str:
-        """Return the detected source type: 'webcam', 'rtsp', or 'file'."""
         return self._source_type
 
     def get_properties(self) -> dict:
-        """
-        Return current capture properties as a dictionary.
-        Returns empty dict if not connected.
-        """
         if self._cap is None or not self._cap.isOpened():
             return {}
 
@@ -227,11 +209,9 @@ class CameraStream:
         }
 
     def __enter__(self):
-        """Context manager entry — connect on enter."""
         self.connect()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit — release on exit."""
         self.release()
         return False

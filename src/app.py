@@ -9,6 +9,7 @@ import sys
 import time
 import calendar
 import logging
+import threading
 from datetime import date, datetime, timedelta
 from typing import Generator, List
 
@@ -149,23 +150,89 @@ def draw_dashboard_overlay(frame, results_with_status, fps=0.0, registered_count
     return frame
 
 
+class AsyncFaceRecognizer:
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._latest_frame = None
+        self._last_results = []
+        self._engine = None
+        self._dept_code = ""
+        self._attendance_mgr = None
+        self._db_mgr = None
+        self._is_processing = False
+
+    def update_frame(self, frame, engine, dept_code, attendance_mgr, db_mgr):
+        self._engine = engine
+        self._dept_code = dept_code
+        self._attendance_mgr = attendance_mgr
+        self._db_mgr = db_mgr
+
+        with self._lock:
+            self._latest_frame = frame.copy()
+
+        if not self._is_processing:
+            self._is_processing = True
+            threading.Thread(target=self._worker, daemon=True).start()
+
+    def _worker(self):
+        try:
+            with self._lock:
+                frame_to_process = self._latest_frame.copy() if self._latest_frame is not None else None
+
+            if frame_to_process is not None and self._engine and self._db_mgr:
+                current_period = self._db_mgr.get_current_hourly_period()
+                rec_results = self._engine.recognize_faces(frame_to_process, resize_factor=Config.FACE_RESIZE_FACTOR)
+                results_with_status = []
+                for r in rec_results:
+                    if r.is_recognized and r.student_id != "Unknown":
+                        st = self._attendance_mgr.mark_present(r.student_id, r.student_name, self._dept_code, current_period)
+                    else:
+                        st = AttendanceStatus.SKIPPED_UNKNOWN
+                    results_with_status.append((r, st))
+
+                with self._lock:
+                    self._last_results = results_with_status
+        except Exception as e:
+            logger.error("Async recognition worker error: %s", e)
+        finally:
+            self._is_processing = False
+
+    def get_results(self):
+        with self._lock:
+            return list(self._last_results)
+
+
+async_recognizer = AsyncFaceRecognizer()
+
+
 def generate_mjpeg_frames(dept_code, section="B", cam_name="Default"):
     initialize_components()
     engine = face_engine_manager.get_engine(dept_code)
     camera = camera_manager.get_camera(dept_code, section, cam_name=cam_name)
-    fps_start = time.time(); f_count = 0; last_results = []
+    fps_start = time.time(); f_count = 0; current_fps = 30.0
     while True:
         success, frame = camera.read_frame() if camera else (False, None)
         if not success or frame is None:
-            time.sleep(0.1); continue
+            time.sleep(0.01); continue
         f_count += 1
+
+        if not system_state_manager.is_exam_mode_enabled() and (f_count % config.FRAME_SKIP == 0 or not async_recognizer.get_results()):
+            async_recognizer.update_frame(frame, engine, dept_code, attendance_manager, db_manager)
+
         current_period = db_manager.get_current_hourly_period()
-        if not system_state_manager.is_exam_mode_enabled() and (f_count % config.FRAME_SKIP == 0 or not last_results):
-            rec_results = engine.recognize_faces(frame, resize_factor=Config.FACE_RESIZE_FACTOR)
-            last_results = [(r, attendance_manager.mark_present(r.student_id, r.student_name, dept_code, current_period) if (r.is_recognized and r.student_id != "Unknown") else AttendanceStatus.SKIPPED_UNKNOWN) for r in rec_results]
+        last_results = async_recognizer.get_results()
+
         if time.time() - fps_start >= 1.0:
-            fps = f_count / (time.time() - fps_start); f_count = 0; fps_start = time.time()
-        annotated = draw_dashboard_overlay(frame.copy(), last_results, 0.0, engine.get_registered_count(), attendance_manager.get_today_count(dept_code, current_period), dept_code, current_period)
+            current_fps = f_count / (time.time() - fps_start)
+            f_count = 0
+            fps_start = time.time()
+
+        annotated = draw_dashboard_overlay(
+            frame.copy(), last_results, current_fps,
+            engine.get_registered_count(),
+            attendance_manager.get_today_count(dept_code, current_period),
+            dept_code, current_period
+        )
         yield _encode_frame_as_mjpeg(annotated)
 
 

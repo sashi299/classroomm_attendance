@@ -61,7 +61,7 @@ class Config:
     SMTP_FROM = os.getenv("SMTP_FROM", SMTP_USERNAME)
 
     # Face Recognition Parameters
-    RECOGNITION_THRESHOLD = float(os.getenv("RECOGNITION_THRESHOLD", "0.5"))
+    RECOGNITION_THRESHOLD = float(os.getenv("RECOGNITION_THRESHOLD", "0.55"))
 
     # Student Directory & Storage Configuration
     STUDENTS_BASE_DIR = os.getenv("STUDENTS_BASE_DIR", "students")
@@ -130,7 +130,7 @@ class Config:
 
     # Performance Optimization Settings
     FRAME_SKIP = int(os.getenv("FRAME_SKIP", "3"))
-    FACE_RESIZE_FACTOR = float(os.getenv("FACE_RESIZE_FACTOR", "0.5"))
+    FACE_RESIZE_FACTOR = float(os.getenv("FACE_RESIZE_FACTOR", "1.0"))
 
     # Flask Secret Key
     DEFAULT_SECRET_KEY = "classroom-attendance-secret-key-change-in-production"
@@ -171,7 +171,7 @@ class Config:
 
         if not cls.SECRET_KEY or cls.SECRET_KEY == cls.DEFAULT_SECRET_KEY:
             warnings.append("SECRET_KEY is using default development key. Change in production!")
-            if os.getenv("FLASK_ENV") == "production":
+            if os.getenv("FLASK_ENV") == "production" or os.getenv("ENVIRONMENT") == "production":
                 is_valid = False
 
         if not cls.MYSQL_HOST:

@@ -49,6 +49,37 @@ class RecognitionResult:
     is_recognized: bool      # True if matched within threshold
 
 
+# Cascades for side faces, 45° angle faces, and turned heads
+_CASCADES_DIR = os.path.join(os.path.dirname(__file__), "cascades")
+_PROFILE_CASCADE = None
+_FRONTAL_CASCADE = None
+_ALT_CASCADE = None
+
+try:
+    p_path = os.path.join(_CASCADES_DIR, "haarcascade_profileface.xml")
+    f_path = os.path.join(_CASCADES_DIR, "haarcascade_frontalface_default.xml")
+    a_path = os.path.join(_CASCADES_DIR, "haarcascade_frontalface_alt2.xml")
+
+    if os.path.isfile(p_path):
+        _PROFILE_CASCADE = cv2.CascadeClassifier(p_path)
+    if os.path.isfile(f_path):
+        _FRONTAL_CASCADE = cv2.CascadeClassifier(f_path)
+    if os.path.isfile(a_path):
+        _ALT_CASCADE = cv2.CascadeClassifier(a_path)
+except Exception as e:
+    logger.warning("Error loading cascades: %s", e)
+
+
+def _iou_boxes(boxA, boxB):
+    tA, rA, bA, lA = boxA
+    tB, rB, bB, lB = boxB
+    yA = max(tA, tB); xA = max(lA, lB); yB = min(bA, bB); xB = min(rA, rB)
+    inter = max(0, xB - xA) * max(0, yB - yA)
+    areaA = (rA - lA) * (bA - tA); areaB = (rB - lB) * (bB - tB)
+    union = float(areaA + areaB - inter)
+    return inter / union if union > 0 else 0
+
+
 class FaceEngine:
     """
     Face detection and recognition engine supporting multiple reference encodings per student.
@@ -57,7 +88,7 @@ class FaceEngine:
     detected faces in video frames against registered student profiles.
     """
 
-    def __init__(self, known_students_dir: str, recognition_threshold: float = 0.5):
+    def __init__(self, known_students_dir: str, recognition_threshold: float = 0.55):
         self.known_students_dir = known_students_dir
         self.recognition_threshold = recognition_threshold
         # Mapping: student_id -> StudentProfile
@@ -149,11 +180,7 @@ class FaceEngine:
 
                 parts = name_part.split("_")
                 student_id = parts[0].strip()
-
-                if len(parts) >= 2:
-                    student_name = parts[1].strip()
-                else:
-                    student_name = "Student"
+                student_name = "_".join(parts[1:]).strip()
 
                 if not student_id or not student_name:
                     skipped_count += 1
@@ -166,15 +193,11 @@ class FaceEngine:
                 else:
                     skipped_count += 1
 
-        profile_count = len(self.registered_profiles)
-        logger.info("=" * 50)
-        logger.info("Student Registration Summary:")
-        logger.info("  Total Profiles Loaded   : %d", profile_count)
-        logger.info("  Total Encodings Loaded  : %d", loaded_photos_count)
-        logger.info("  Skipped Images/Folders  : %d", skipped_count)
-        logger.info("=" * 50)
-
-        return profile_count
+        logger.info(
+            "Student photos loaded cleanly: %d photo encodings registered across %d unique students (%d skipped).",
+            loaded_photos_count, len(self.registered_profiles), skipped_count,
+        )
+        return len(self.registered_profiles)
 
     def _process_single_image(self, filepath: str, label_name: str) -> Optional[np.ndarray]:
         """Load an image, verify exactly ONE face, and generate facial encoding."""
@@ -260,10 +283,38 @@ class FaceEngine:
             rgb_frame = cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB)
             scale_multiplier = 1.0
 
-        small_face_locations = face_recognition.face_locations(rgb_frame, model="hog")
-        if not small_face_locations:
+        # Contrast normalization for Night Vision / IR cameras
+        gray = cv2.cvtColor(rgb_frame, cv2.COLOR_RGB2GRAY)
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+        norm_gray = clahe.apply(gray)
+        rgb_frame_enhanced = cv2.cvtColor(norm_gray, cv2.COLOR_GRAY2RGB)
+        # 1. Primary dlib face locations for encoding generation
+        dlib_face_locations = face_recognition.face_locations(rgb_frame_enhanced, number_of_times_to_upsample=1, model="hog")
+        if not dlib_face_locations:
+            dlib_face_locations = face_recognition.face_locations(rgb_frame_enhanced, number_of_times_to_upsample=0, model="hog")
+
+        # 2. Side profile face detection fallback for turned heads
+        extra_profile_boxes = []
+        if _PROFILE_CASCADE is not None and not _PROFILE_CASCADE.empty():
+            p_faces_left = _PROFILE_CASCADE.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=3, minSize=(25, 25))
+            for (x, y, bw, bh) in p_faces_left:
+                box = (y, x + bw, y + bh, x)
+                if not any(_iou_boxes(box, b) > 0.3 for b in dlib_face_locations):
+                    extra_profile_boxes.append(box)
+
+            flipped_gray = cv2.flip(gray, 1)
+            p_faces_right = _PROFILE_CASCADE.detectMultiScale(flipped_gray, scaleFactor=1.1, minNeighbors=3, minSize=(25, 25))
+            h_g, w_g = gray.shape[:2]
+            for (x, y, bw, bh) in p_faces_right:
+                orig_x = w_g - (x + bw)
+                box = (y, orig_x + bw, y + bh, orig_x)
+                if not any(_iou_boxes(box, b) > 0.3 for b in dlib_face_locations) and not any(_iou_boxes(box, b) > 0.3 for b in extra_profile_boxes):
+                    extra_profile_boxes.append(box)
+
+        if not dlib_face_locations and not extra_profile_boxes:
             return results
 
+        # Scale coordinates if resized
         if scale_multiplier != 1.0:
             face_locations = [
                 (
@@ -272,15 +323,26 @@ class FaceEngine:
                     int(round(bottom * scale_multiplier)),
                     int(round(left * scale_multiplier)),
                 )
-                for top, right, bottom, left in small_face_locations
+                for top, right, bottom, left in dlib_face_locations
+            ]
+            profile_locations = [
+                (
+                    int(round(top * scale_multiplier)),
+                    int(round(right * scale_multiplier)),
+                    int(round(bottom * scale_multiplier)),
+                    int(round(left * scale_multiplier)),
+                )
+                for top, right, bottom, left in extra_profile_boxes
             ]
         else:
-            face_locations = small_face_locations
+            face_locations = dlib_face_locations
+            profile_locations = extra_profile_boxes
 
-        face_encodings = face_recognition.face_encodings(rgb_frame, small_face_locations)
+        # Generate face encodings strictly on dlib locations
+        face_encodings = face_recognition.face_encodings(rgb_frame_enhanced, dlib_face_locations) if dlib_face_locations else []
 
         if not self.registered_profiles:
-            for loc in face_locations:
+            for loc in face_locations + profile_locations:
                 results.append(RecognitionResult(
                     student_id="Unknown",
                     student_name="Unknown",
@@ -290,7 +352,12 @@ class FaceEngine:
                 ))
             return results
 
-        # Iterate over detected faces
+        # Check if frame is B&W / IR Night Vision (low color saturation across channels)
+        b_ch, g_ch, r_ch = cv2.split(rgb_frame)
+        is_ir_night = bool(np.std(b_ch.astype(np.float32) - g_ch.astype(np.float32)) < 10.0)
+        effective_threshold = max(self.recognition_threshold, 0.58) if is_ir_night else self.recognition_threshold
+
+        # Process dlib faces for student profile matching
         for face_encoding, face_location in zip(face_encodings, face_locations):
             best_student_id = "Unknown"
             best_student_name = "Unknown"
@@ -309,7 +376,7 @@ class FaceEngine:
                     best_student_id = profile.student_id
                     best_student_name = profile.student_name
 
-            if overall_min_distance <= self.recognition_threshold and best_student_id != "Unknown":
+            if overall_min_distance <= effective_threshold and best_student_id != "Unknown":
                 results.append(RecognitionResult(
                     student_id=best_student_id,
                     student_name=best_student_name,
@@ -326,7 +393,17 @@ class FaceEngine:
                     distance=overall_min_distance,
                     is_recognized=False,
                 ))
-                logger.debug("NO MATCH: best distance=%.4f exceeds threshold=%.2f", overall_min_distance, self.recognition_threshold)
+                logger.debug("NO MATCH: best distance=%.4f exceeds threshold=%.2f", overall_min_distance, effective_threshold)
+
+        # Add profile cascade faces as UNKNOWN boxes
+        for loc in profile_locations:
+            results.append(RecognitionResult(
+                student_id="Unknown",
+                student_name="Unknown",
+                face_location=loc,
+                distance=1.0,
+                is_recognized=False,
+            ))
 
         return results
 

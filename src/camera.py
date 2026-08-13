@@ -13,6 +13,7 @@ Supports three source types (auto-detected from RTSP_URL config):
 
 import time
 import os
+import socket
 import threading
 import logging
 from typing import Optional, Tuple
@@ -80,14 +81,39 @@ class CameraStream:
             return 0
         return str(source).strip()
 
+    @staticmethod
+    def _is_rtsp_reachable(url: str, timeout: float = 0.25) -> bool:
+        try:
+            if not str(url).startswith("rtsp://"):
+                return False
+            part = str(url).split("://")[1].split("/")[0]
+            if "@" in part:
+                part = part.split("@")[1]
+            if ":" in part:
+                host, port_str = part.split(":")
+                port = int(port_str)
+            else:
+                host = part
+                port = 554
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(timeout)
+            s.connect((host, port))
+            s.close()
+            return True
+        except Exception:
+            return False
+
     def connect(self) -> bool:
         self.release()
         logger.info("Connecting to camera source: %s ...", self.source)
 
         try:
             if self._source_type == "rtsp":
-                # Fast RTSP FFMPEG options with 1s network socket timeout
-                os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;udp|max_delay;500000|stimeout;1000000"
+                if not self._is_rtsp_reachable(self._capture_arg, timeout=0.25):
+                    logger.warning("RTSP stream %s unreachable (fast socket check failed).", self.source)
+                    self._is_connected = False
+                    return False
+                os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;udp|max_delay;500000|stimeout;500000|timeout;500000"
                 self._cap = cv2.VideoCapture(self._capture_arg, cv2.CAP_FFMPEG)
                 if self._cap is not None:
                     self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)

@@ -8,6 +8,7 @@ Provides:
   - Clean shutdown of all camera resources.
 """
 
+import os
 import logging
 from typing import Optional, Dict, List, Tuple, Any
 
@@ -142,35 +143,57 @@ class CameraManager:
                     pass
                 del self._cameras[cache_key]
 
-        # Handle Laptop Webcam selection for demo
+        # Determine primary requested camera source
         cam_lower = str(cam_name).strip().lower()
-        if "webcam" in cam_lower or "laptop" in cam_lower or cam_lower in ["0", "integrated", "default"]:
+        if "webcam" in cam_lower or "laptop" in cam_lower:
             cfg = {"source": "0"}
+        elif cam_name == "Default" or "matrix" in cam_lower or "cctv" in cam_lower:
+            configs = self._get_camera_config(dept, sec)
+            if configs:
+                cfg = configs[0]
+            else:
+                env_cam = os.getenv(f"CAMERA_{dept}", os.getenv("RTSP_URL", "rtsp://admin:admin@192.168.1.126:554/"))
+                cfg = {"source": env_cam}
         else:
             configs = self._get_camera_config(dept, sec)
             cfg = None
             if configs:
-                cfg = next((c for c in configs if c["name"] == cam_name), configs[0])
+                cfg = next((c for c in configs if c["name"] == cam_name), None)
+            if not cfg:
+                env_cam = os.getenv(f"CAMERA_{dept}", "0")
+                cfg = {"source": env_cam}
 
-        if not cfg and not self.db:
-            # If no DB, try legacy index-based access in legacy_config
-            sources = self._legacy_config.get(dept, [])
-            try:
-                idx = int(cam_name) if cam_name.isdigit() else -1
-                if 0 <= idx < len(sources):
-                    cfg = {"source": sources[idx]}
-            except Exception: pass
+        primary_source = cfg["source"]
+        logger.info("Attempting primary camera for %s-%s [%s]: source=%s", dept, sec, cam_name, primary_source)
 
-        if not cfg:
-            # Default fallback to camera source 0 (laptop webcam) to prevent black screens
-            cfg = {"source": "0"}
+        cam = CameraStream(source=primary_source)
+        if cam.connect() and cam._is_connected:
+            self._cameras[cache_key] = cam
+            return self._cameras[cache_key]
 
-        source = cfg["source"]
-        logger.info("Creating camera for %s-%s [%s]: source=%s", dept, sec, cam_name, source)
-        cam = CameraStream(source=source)
-        cam.connect()
-        self._cameras[cache_key] = cam
+        # Primary CCTV failed/offline -> Auto fallback to Laptop Webcam (source 0)
+        logger.info("Primary camera source %s offline. Auto falling back to Laptop Webcam...", primary_source)
+        try:
+            cam.release()
+        except Exception: pass
 
+        fallback_cam = CameraStream(source="0")
+        if fallback_cam.connect() and fallback_cam._is_connected:
+            self._cameras[cache_key] = fallback_cam
+            return self._cameras[cache_key]
+
+        # Secondary fallback -> Try index 1
+        logger.info("Webcam source 0 unavailable. Trying index 1...")
+        try:
+            fallback_cam.release()
+        except Exception: pass
+
+        fallback_cam2 = CameraStream(source="1")
+        if fallback_cam2.connect() and fallback_cam2._is_connected:
+            self._cameras[cache_key] = fallback_cam2
+            return self._cameras[cache_key]
+
+        self._cameras[cache_key] = fallback_cam
         return self._cameras[cache_key]
 
     def is_camera_available(self, dept_code: str, section: str = "B", classroom: str = "Main", cam_name: str = "Default", **kwargs) -> bool:

@@ -1711,15 +1711,20 @@
         .then(res => res.json())
         .then(data => {
             const select = document.getElementById('live-camera-select');
-            if (!data.cameras || data.cameras.length === 0) {
-                select.innerHTML = '<option value="Default">Default Camera</option>';
-            } else {
-                let html = '';
+            let html = '<option value="Default">📹 Matrix IP Camera (CCTV)</option><option value="Laptop Webcam">💻 Laptop Webcam (Integrated)</option>';
+            if (data.cameras && data.cameras.length > 0) {
                 data.cameras.forEach(c => {
-                    html += `<option value="${c.name}">${c.name} (${c.classroom || '-'})</option>`;
+                    if (c.name !== "Default" && c.name !== "Matrix IP Camera") {
+                        html += `<option value="${c.name}">${c.name} (${c.classroom || '-'})</option>`;
+                    }
                 });
-                select.innerHTML = html;
             }
+            select.innerHTML = html;
+            switchCameraView();
+        })
+        .catch(() => {
+            const select = document.getElementById('live-camera-select');
+            select.innerHTML = '<option value="Default">📹 Matrix IP Camera (CCTV)</option><option value="Laptop Webcam">💻 Laptop Webcam (Integrated)</option>';
             switchCameraView();
         });
     }

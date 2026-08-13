@@ -128,15 +128,17 @@ class CameraManager:
         cache_key = (dept, sec, classroom, cam_name)
 
         if cache_key not in self._cameras:
-            # Find in config
-            configs = self._get_camera_config(dept, sec)
-
-            cfg = None
-            if configs:
-                if cam_name == "Default":
-                    cfg = configs[0]
-                else:
-                    cfg = next((c for c in configs if c["name"] == cam_name), None)
+            # Handle Laptop Webcam selection for demo
+            if cam_name in ["Laptop Webcam", "Webcam", "Laptop Camera", "0"]:
+                cfg = {"source": "0"}
+            else:
+                configs = self._get_camera_config(dept, sec)
+                cfg = None
+                if configs:
+                    if cam_name == "Default":
+                        cfg = configs[0]
+                    else:
+                        cfg = next((c for c in configs if c["name"] == cam_name), None)
 
             if not cfg and not self.db:
                 # If no DB, try legacy index-based access in legacy_config

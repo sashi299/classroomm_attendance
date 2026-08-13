@@ -1,0 +1,40 @@
+# Environment secrets
+.env
+
+# Virtual environment
+venv/
+env/
+ENV/
+.venv/
+
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+*.egg-info/
+dist/
+build/
+
+# Project-specific data exclusions
+students/
+data/evidence/
+data/*.db
+data/*.sqlite
+
+# Temporary data & scratch logs
+scratch/
+test_env_check/
+*.log
+test_output.txt
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS metadata
+Thumbs.db
+.DS_Store

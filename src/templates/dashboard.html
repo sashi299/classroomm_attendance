@@ -1,0 +1,2880 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ department_name }} ({{ department_code }}) - Classroom Attendance Dashboard</title>
+    <!-- Modern Font: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #0f172a;
+            --card-bg: #1e293b;
+            --card-border: #334155;
+            --accent-green: #10b981;
+            --accent-green-bg: rgba(16, 185, 129, 0.15);
+            --accent-blue: #3b82f6;
+            --accent-red: #ef4444;
+            --accent-amber: #f59e0b;
+            --accent-amber-bg: rgba(245, 158, 11, 0.15);
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .dashboard-container {
+            max-width: 1240px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* --- Exam Mode Banner --- */
+        .exam-mode-banner {
+            background: linear-gradient(90deg, #d97706 0%, #b45309 100%);
+            color: #ffffff;
+            padding: 12px 24px;
+            border-radius: 12px;
+            font-weight: 700;
+            display: none;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 4px 15px rgba(217, 119, 6, 0.4);
+            animation: pulse-border 2s infinite;
+        }
+
+        @keyframes pulse-border {
+            0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.6); }
+            70% { box-shadow: 0 0 0 10px rgba(245, 158, 11, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+        }
+
+        /* --- Header --- */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            padding: 20px 24px;
+            border-radius: 16px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+        }
+
+        .header-title-box h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header-title-box p {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
+        .dept-badge {
+            background: rgba(59, 130, 246, 0.2);
+            color: #60a5fa;
+            border: 1px solid rgba(59, 130, 246, 0.4);
+            padding: 4px 12px;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .header-stats {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .stat-card {
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid var(--card-border);
+            padding: 12px 20px;
+            border-radius: 12px;
+            text-align: right;
+        }
+
+        .stat-card .stat-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            font-weight: 600;
+        }
+
+        .stat-card .stat-value {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: var(--accent-green);
+        }
+
+        /* --- Navigation Tabs --- */
+        .nav-tabs-bar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            padding: 6px 8px;
+            border-radius: 12px;
+        }
+
+        .nav-tab-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s ease;
+        }
+
+        .nav-tab-btn:hover {
+            color: var(--text-primary);
+            background: rgba(51, 65, 85, 0.4);
+        }
+
+        .nav-tab-btn.active {
+            background: var(--accent-blue);
+            color: #ffffff;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+        }
+
+        .tab-content {
+            display: none;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .tab-content.active {
+            display: flex;
+        }
+
+        /* --- Live Video Feed Card --- */
+        .video-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+        }
+
+        .card-header {
+            padding: 16px 24px;
+            background: rgba(15, 23, 42, 0.4);
+            border-bottom: 1px solid var(--card-border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .card-header h2 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .live-indicator {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--accent-red);
+            background: rgba(239, 68, 68, 0.15);
+            padding: 4px 10px;
+            border-radius: 9999px;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        .live-dot {
+            width: 8px;
+            height: 8px;
+            background-color: var(--accent-red);
+            border-radius: 50%;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(1.2); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+
+        .video-viewport {
+            width: 100%;
+            background-color: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 400px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .video-viewport img {
+            width: 100%;
+            max-height: 600px;
+            object-fit: contain;
+            display: block;
+            transition: transform 0.3s ease;
+            transform-origin: center center;
+        }
+
+        /* --- Table Cards --- */
+        .table-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 24px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+        }
+
+        .table-header-flex {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .search-box {
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid var(--card-border);
+            padding: 8px 16px;
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 0.875rem;
+            outline: none;
+            width: 260px;
+            transition: border-color 0.2s;
+        }
+
+        .search-box:focus {
+            border-color: var(--accent-blue);
+        }
+
+        .attendance-table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+            font-size: 0.9rem;
+        }
+
+        .attendance-table th {
+            padding: 12px 16px;
+            background: rgba(15, 23, 42, 0.6);
+            color: var(--text-secondary);
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.05em;
+            border-bottom: 1px solid var(--card-border);
+        }
+
+        .attendance-table td {
+            padding: 14px 16px;
+            border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+            color: var(--text-primary);
+        }
+
+        .attendance-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .attendance-table tr:hover {
+            background: rgba(51, 65, 85, 0.3);
+        }
+
+        .status-badge-present {
+            display: inline-block;
+            background: var(--accent-green-bg);
+            color: var(--accent-green);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .status-badge-active {
+            display: inline-block;
+            background: rgba(59, 130, 246, 0.15);
+            color: #60a5fa;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .status-badge-amber {
+            display: inline-block;
+            background: var(--accent-amber-bg);
+            color: var(--accent-amber);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .empty-state {
+            padding: 40px;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.95rem;
+        }
+
+        /* --- Buttons --- */
+        .btn-primary {
+            background: #2563eb;
+            color: #ffffff;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            font-family: 'Inter', sans-serif;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: background 0.2s;
+        }
+        .btn-primary:hover {
+            background: #1d4ed8;
+        }
+
+        .btn-warning {
+            background: #d97706;
+            color: #ffffff;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            font-family: 'Inter', sans-serif;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: background 0.2s;
+        }
+        .btn-warning:hover {
+            background: #b45309;
+        }
+
+        .btn-danger-sm {
+            background: rgba(239, 68, 68, 0.15);
+            color: #fca5a5;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            font-family: 'Inter', sans-serif;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-danger-sm:hover {
+            background: rgba(239, 68, 68, 0.35);
+        }
+
+        /* --- Modal --- */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(4px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease;
+        }
+        .modal-overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .modal-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            width: 100%;
+            max-width: 520px;
+            padding: 24px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+
+        .modal-header h3 {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .close-modal-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 1.5rem;
+            cursor: pointer;
+            line-height: 1;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .form-group label {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .form-control {
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid var(--card-border);
+            padding: 10px 14px;
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 0.875rem;
+            outline: none;
+            font-family: 'Inter', sans-serif;
+        }
+        .form-control:focus {
+            border-color: var(--accent-blue);
+        }
+
+        .alert-error {
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #fca5a5;
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            margin-bottom: 16px;
+            display: none;
+        }
+
+        .dept-switcher {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .dept-switcher label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .dept-switcher select {
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid var(--card-border);
+            color: var(--text-primary);
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            font-family: 'Inter', sans-serif;
+            outline: none;
+            cursor: pointer;
+            transition: border-color 0.2s;
+        }
+        .dept-switcher select:focus {
+            border-color: var(--accent-blue);
+        }
+
+        .logout-btn {
+            background: rgba(239, 68, 68, 0.15);
+            color: #fca5a5;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            font-family: 'Inter', sans-serif;
+            cursor: pointer;
+            text-decoration: none;
+            transition: background 0.2s;
+        }
+        .logout-btn:hover {
+            background: rgba(239, 68, 68, 0.3);
+        }
+        .user-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        .footer {
+            text-align: center;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="dashboard-container">
+    <!-- Exam Mode Global Indicator Banner -->
+    <div class="exam-mode-banner" id="exam-mode-banner">
+        <div style="display:flex; align-items:center; gap:10px;">
+            <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+            <div>
+                <span style="font-size:1rem; letter-spacing:0.05em;">EXAM MODE ACTIVE</span>
+                <p style="font-size:0.8rem; font-weight:400; opacity:0.9;">Live camera streaming is active. Hourly face recognition and attendance marking are temporarily paused.</p>
+            </div>
+        </div>
+        {% if is_admin %}
+        <button class="btn-primary" style="background:#ffffff; color:#b45309;" onclick="toggleExamMode(false)">
+            Disable Exam Mode
+        </button>
+        {% endif %}
+    </div>
+
+    <!-- Header -->
+    <header class="header">
+        <div class="header-title-box">
+            <h1>
+                Classroom Attendance Dashboard
+                <span class="dept-badge" id="active-dept-badge">{{ department_code }} Department</span>
+            </h1>
+            <p>{{ department_name }} — Hourly Attendance Supervision Portal</p>
+        </div>
+        <div class="header-stats">
+            <div class="stat-card">
+                <div class="stat-label">Current Period</div>
+                <div class="stat-value" id="current-period-val" style="font-size: 1.1rem; color: #60a5fa;">--</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Present (Period)</div>
+                <div class="stat-value" id="present-count-val">0</div>
+            </div>
+            <div style="display:flex; flex-direction:column; align-items:flex-end; gap:8px;">
+                <span class="user-badge">
+                    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
+                    {{ username }}
+                </span>
+                <a href="/logout" class="logout-btn">Sign Out</a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Navigation Tabs Bar -->
+    <nav class="nav-tabs-bar">
+        <button class="nav-tab-btn active" id="tab-btn-live" onclick="switchTab('live')">
+            <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+            Live Dashboard
+        </button>
+        <button class="nav-tab-btn" id="tab-btn-students" onclick="switchTab('students')">
+            <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+            Student Management
+        </button>
+        <button class="nav-tab-btn" id="tab-btn-history" onclick="switchTab('history')">
+            <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+            Attendance History
+        </button>
+        <button class="nav-tab-btn" id="tab-btn-reports" onclick="switchTab('reports')">
+            <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+            Attendance Reports
+        </button>
+        {% if is_admin %}
+        <button class="nav-tab-btn" id="tab-btn-settings" onclick="switchTab('settings')">
+            <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+            System Settings
+        </button>
+        {% endif %}
+    </nav>
+
+    <!-- TAB 1: Live Dashboard View -->
+    <div id="tab-content-live" class="tab-content active">
+        <!-- CURRENT CLASS CARD (CSD-B Trial) -->
+        <section class="table-card" id="current-class-card" style="margin-bottom: 20px; display: none; border-left: 5px solid var(--accent-blue);">
+            <div class="card-header">
+                <h2>
+                    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    CURRENT CLASS
+                </h2>
+                <div id="class-status-badge" class="status-badge-active">ACTIVE</div>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; padding: 20px;">
+                <div>
+                    <div class="stat-label">Subject</div>
+                    <div class="stat-value" id="current-subject" style="font-size: 1.25rem; color: #60a5fa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">--</div>
+                </div>
+                <div>
+                    <div class="stat-label">Period / Type</div>
+                    <div class="stat-value" id="current-period-info" style="font-size: 1.1rem;">--</div>
+                </div>
+                <div>
+                    <div class="stat-label">Time</div>
+                    <div class="stat-value" id="current-time-range" style="font-size: 1.1rem;">--</div>
+                </div>
+                <div style="text-align: right;">
+                    <div class="stat-label">Remaining Time</div>
+                    <div class="stat-value" id="current-remaining" style="font-size: 1.3rem; color: var(--accent-amber);">--</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Live Stream Video Section -->
+        <section class="video-card">
+            <div class="card-header">
+                <h2>
+                    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                    Live Camera Stream
+                </h2>
+                <div style="display:flex; align-items:center; gap:16px;">
+                    {% if is_admin %}
+                    <div class="dept-switcher">
+                        <label for="dept-select">Department:</label>
+                        <select id="dept-select" onchange="switchDepartment(this.value)">
+                            {% for dept in departments %}
+                            <option value="{{ dept }}">{{ dept }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endif %}
+                    <div class="live-indicator">
+                        <div class="live-dot"></div>
+                        LIVE FEED
+                    </div>
+                </div>
+            </div>
+            <div style="background:rgba(15,23,42,0.4); padding:10px 18px; border-top:1px solid var(--card-border); border-bottom:1px solid var(--card-border); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+                <div style="display:flex; align-items:center; gap:12px;">
+                    <span style="font-size:0.8rem; color:var(--text-secondary); font-weight:600; text-transform:uppercase;">Select Section & Camera:</span>
+                    <select id="live-section-select" class="form-control" style="width:110px; padding:4px 8px; font-size:0.8rem;" onchange="fetchClassroomCameras()">
+                        <option value="B">Section B</option>
+                        <option value="A">Section A</option>
+                    </select>
+                    <select id="live-camera-select" class="form-control" style="width:180px; padding:4px 8px; font-size:0.8rem;" onchange="switchCameraView()">
+                        <option value="Default">Default Camera</option>
+                    </select>
+                </div>
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <span style="font-size:0.8rem; color:var(--text-secondary); font-weight:600;">ZOOM:</span>
+                    <input type="range" id="video-zoom-slider" min="1" max="3" step="0.1" value="1" oninput="applyZoom(this.value)" style="width:100px; cursor:pointer;" />
+                    <button class="btn-primary" style="padding:4px 10px; font-size:0.75rem;" onclick="applyZoom(1); document.getElementById('video-zoom-slider').value=1;">Reset</button>
+                </div>
+            </div>
+            <div class="video-viewport">
+                <img src="/video_feed?dept={{ department_code }}" alt="Live Camera Feed Stream" id="live-stream-img" onerror="handleStreamError()" />
+            </div>
+        </section>
+
+        <!-- Today's Hourly Attendance Table -->
+        <section class="table-card">
+            <div class="table-header-flex">
+                <h2>Today's Hourly Attendance Register</h2>
+                <input type="text" id="table-search" class="search-box" placeholder="Search student ID or name..." onkeyup="filterTable()" />
+            </div>
+            <div id="table-wrapper">
+                <table class="attendance-table" id="attendance-table">
+                    <thead>
+                        <tr>
+                            <th>Period</th>
+                            <th>Subject</th>
+                            <th>Student ID</th>
+                            <th>Student Name</th>
+                            <th>Dept / Sec</th>
+                            <th>Time</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="attendance-body">
+                        <tr>
+                            <td colspan="7" class="empty-state">Loading today's hourly attendance records...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Today's Timetable Section (CSD-B Trial) -->
+        <section class="table-card" id="timetable-section" style="margin-top: 10px; display: none;">
+            <div class="card-header">
+                <h2>
+                    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                    Today's Timetable Schedule (CSD-B)
+                </h2>
+            </div>
+            <div style="padding: 10px;">
+                <table class="attendance-table" id="timetable-table">
+                    <thead>
+                        <tr>
+                            <th>P#</th>
+                            <th>Time Slot</th>
+                            <th>Subject</th>
+                            <th>Class Type</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="timetable-body">
+                        <tr><td colspan="5" class="empty-state">Loading timetable schedule...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <!-- TAB 2: Student Management View -->
+    <div id="tab-content-students" class="tab-content">
+        <section class="table-card">
+            <div class="table-header-flex">
+                <h2>
+                    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="margin-right:6px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+                    Student Directory & Multi-Photo Registry
+                </h2>
+                <div style="display:flex; align-items:center; gap:12px;">
+                    <input type="text" id="student-search" class="search-box" placeholder="Search registered students..." onkeyup="filterStudentTable()" />
+                    {% if is_admin %}
+                    <button class="btn-primary" onclick="openAddStudentModal()">
+                        <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                        Add / Update Student Photos
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
+            <div id="student-table-wrapper">
+                <table class="attendance-table" id="student-table">
+                    <thead>
+                    <tr>
+                        <th>ID / Roll No</th>
+                        <th>Name</th>
+                        <th>Dept</th>
+                        <th>Academic</th>
+                        <th>Level/Sec</th>
+                        <th>Face Samples</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="student-body">
+                    <tr><td colspan="8" class="empty-state">Loading registered students...</td></tr>
+                </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <!-- TAB 3: Attendance History View -->
+    <div id="tab-content-history" class="tab-content">
+        <section class="table-card">
+            <div class="table-header-flex">
+                <h2>
+                    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="margin-right:6px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                    Hourly Attendance History & Analytics
+                </h2>
+                <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                    <button class="btn-primary" style="background:#10b981;" onclick="exportHistoryCSV()">
+                        <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                        Export CSV
+                    </button>
+                </div>
+            </div>
+
+            <!-- Filter Controls Bar -->
+            <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap; background:rgba(15,23,42,0.4); padding:12px 16px; border-radius:10px; border:1px solid var(--card-border);">
+                <div style="display:flex; align-items:center; gap:6px;">
+                    <label style="font-size:0.75rem; color:var(--text-secondary); font-weight:600; text-transform:uppercase;">From:</label>
+                    <input type="date" id="history-start-date" class="form-control" style="padding:6px 10px; font-size:0.85rem;" />
+                </div>
+                <div style="display:flex; align-items:center; gap:6px;">
+                    <label style="font-size:0.75rem; color:var(--text-secondary); font-weight:600; text-transform:uppercase;">To:</label>
+                    <input type="date" id="history-end-date" class="form-control" style="padding:6px 10px; font-size:0.85rem;" />
+                </div>
+                {% if is_admin %}
+                <div style="display:flex; align-items:center; gap:6px;">
+                    <label style="font-size:0.75rem; color:var(--text-secondary); font-weight:600; text-transform:uppercase;">Dept:</label>
+                    <select id="history-dept-dropdown" class="form-control" style="padding:6px 10px; font-size:0.85rem;">
+                        <option value="ALL">ALL</option>
+                        {% for dept in departments %}
+                        <option value="{{ dept }}">{{ dept }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% endif %}
+                <input type="text" id="history-search" class="search-box" style="width:180px; padding:6px 12px; font-size:0.85rem;" placeholder="Search ID or Name..." />
+                <button class="btn-primary" style="padding:6px 14px; font-size:0.85rem;" onclick="fetchHistoryData()">Apply Filters</button>
+                <button class="btn-danger-sm" style="padding:6px 12px; font-size:0.85rem;" onclick="clearHistoryFilters()">Clear</button>
+            </div>
+
+            <!-- History Table -->
+            <div id="history-table-wrapper">
+                <table class="attendance-table" id="history-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Time</th>
+                            <th>Hourly Period</th>
+                            <th>Student ID</th>
+                            <th>Student Name</th>
+                            <th>Department</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="history-body">
+                        <tr>
+                            <td colspan="7" class="empty-state">Loading attendance history...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <!-- TAB 4: Attendance Reports View (HOD & Admin) -->
+    <div id="tab-content-reports" class="tab-content">
+        <section class="table-card">
+            <div class="table-header-flex">
+                <h2>
+                    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="margin-right:6px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                    HOD Attendance Reports & Period Analytics
+                </h2>
+                <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                    <button class="btn-primary" style="background:#10b981;" onclick="downloadReportExport('csv')">
+                        <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                        CSV
+                    </button>
+                    <button class="btn-primary" style="background:#0284c7;" onclick="downloadReportExport('excel')">
+                        <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                        Excel
+                    </button>
+                    <button class="btn-primary" style="background:#dc2626;" onclick="downloadReportExport('pdf')">
+                        <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+                        PDF
+                    </button>
+                </div>
+            </div>
+
+            <!-- Quick Presets Bar -->
+            <div style="display:flex; align-items:center; gap:10px; margin-bottom:16px; flex-wrap:wrap;">
+                <span style="font-weight:700; font-size:0.8rem; color:var(--text-secondary); text-transform:uppercase;">Quick Presets:</span>
+                <button class="btn-primary" style="padding:4px 12px; font-size:0.8rem; background:rgba(255,255,255,0.1);" onclick="applyReportPreset('today')">TODAY</button>
+                <button class="btn-primary" style="padding:4px 12px; font-size:0.8rem; background:rgba(255,255,255,0.1);" onclick="applyReportPreset('this_week')">THIS WEEK</button>
+                <button class="btn-primary" style="padding:4px 12px; font-size:0.8rem; background:rgba(255,255,255,0.1);" onclick="applyReportPreset('this_month')">THIS MONTH</button>
+                <button class="btn-primary" style="padding:4px 12px; font-size:0.8rem; background:rgba(255,255,255,0.1);" onclick="applyReportPreset('this_year')">THIS YEAR</button>
+            </div>
+
+            <!-- Filter Controls Bar -->
+            <div style="display:flex; align-items:center; gap:12px; margin-bottom:20px; flex-wrap:wrap; background:rgba(15,23,42,0.4); padding:14px 18px; border-radius:10px; border:1px solid var(--card-border);">
+                <div style="display:flex; align-items:center; gap:6px;">
+                    <label style="font-size:0.75rem; color:var(--text-secondary); font-weight:600; text-transform:uppercase;">Report Mode:</label>
+                    <select id="rpt-mode-select" class="form-control" style="padding:6px 10px; font-size:0.85rem;" onchange="handleReportModeChange(this.value)">
+                        <option value="daily">Daily</option>
+                        <option value="weekly">Weekly</option>
+                        <option value="monthly">Monthly</option>
+                        <option value="yearly">Yearly</option>
+                        <option value="general">Custom Range</option>
+                    </select>
+                </div>
+                <div style="display:flex; align-items:center; gap:6px;">
+                    <label style="font-size:0.75rem; color:var(--text-secondary); font-weight:600; text-transform:uppercase;">From:</label>
+                    <input type="date" id="rpt-start-date" class="form-control" style="padding:6px 10px; font-size:0.85rem;" />
+                </div>
+                <div style="display:flex; align-items:center; gap:6px;">
+                    <label style="font-size:0.75rem; color:var(--text-secondary); font-weight:600; text-transform:uppercase;">To:</label>
+                    <input type="date" id="rpt-end-date" class="form-control" style="padding:6px 10px; font-size:0.85rem;" />
+                </div>
+                {% if is_admin %}
+                <div style="display:flex; align-items:center; gap:6px;">
+                    <label style="font-size:0.75rem; color:var(--text-secondary); font-weight:600; text-transform:uppercase;">Dept:</label>
+                    <select id="rpt-dept-dropdown" class="form-control" style="padding:6px 10px; font-size:0.85rem;">
+                        <option value="ALL">ALL</option>
+                        {% for dept in departments %}
+                        <option value="{{ dept }}">{{ dept }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% endif %}
+                <div style="display:flex; align-items:center; gap:6px;">
+                    <label style="font-size:0.75rem; color:var(--text-secondary); font-weight:600; text-transform:uppercase;">Section:</label>
+                    <select id="rpt-section-dropdown" class="form-control" style="padding:6px 10px; font-size:0.85rem;">
+                        <option value="B">Section B</option>
+                        <option value="A">Section A</option>
+                    </select>
+                </div>
+                <div style="display:flex; align-items:center; gap:6px;">
+                    <label style="font-size:0.75rem; color:var(--text-secondary); font-weight:600; text-transform:uppercase;">Period:</label>
+                    <select id="rpt-period-dropdown" class="form-control" style="padding:6px 10px; font-size:0.85rem;">
+                        <option value="ALL">ALL PERIODS</option>
+                        <option value="1">Period 1 (09:15)</option>
+                        <option value="2">Period 2 (10:20)</option>
+                        <option value="3">Period 3 (11:10)</option>
+                        <option value="4">Period 4 (12:00)</option>
+                        <option value="5">Period 5 (13:40)</option>
+                        <option value="6">Period 6 (14:30)</option>
+                        <option value="7">Period 7 (15:20)</option>
+                    </select>
+                </div>
+                <div style="display:flex; align-items:center; gap:6px;">
+                    <label style="font-size:0.75rem; color:var(--text-secondary); font-weight:600; text-transform:uppercase;">Academic:</label>
+                    <select id="rpt-academic-dropdown" class="form-control" style="padding:6px 10px; font-size:0.85rem;">
+                        <option value="">ALL YEARS</option>
+                        <option value="2026-27">2026-27</option>
+                    </select>
+                </div>
+                <div style="display:flex; align-items:center; gap:6px;">
+                    <label style="font-size:0.75rem; color:var(--text-secondary); font-weight:600; text-transform:uppercase;">Year:</label>
+                    <select id="rpt-yearlevel-dropdown" class="form-control" style="padding:6px 10px; font-size:0.85rem;">
+                        <option value="">ALL</option>
+                        <option value="I">I</option>
+                        <option value="II">II</option>
+                        <option value="III">III</option>
+                        <option value="IV">IV</option>
+                    </select>
+                </div>
+                <div style="display:flex; align-items:center; gap:6px;">
+                    <label style="font-size:0.75rem; color:var(--text-secondary); font-weight:600; text-transform:uppercase;">Sem:</label>
+                    <select id="rpt-semester-dropdown" class="form-control" style="padding:6px 10px; font-size:0.85rem;">
+                        <option value="">ALL</option>
+                        <option value="I">I</option>
+                        <option value="II">II</option>
+                    </select>
+                </div>
+                <div style="display:flex; align-items:center; gap:6px;">
+                    <label style="font-size:0.75rem; color:var(--text-secondary); font-weight:600; text-transform:uppercase;">Time:</label>
+                    <input type="time" id="rpt-from-time" class="form-control" style="padding:6px 8px; font-size:0.8rem; width:100px;" />
+                    <span>-</span>
+                    <input type="time" id="rpt-to-time" class="form-control" style="padding:6px 8px; font-size:0.8rem; width:100px;" />
+                </div>
+                <div style="display:flex; align-items:center; gap:6px;">
+                    <label style="font-size:0.75rem; color:var(--text-secondary); font-weight:600; text-transform:uppercase;">Status:</label>
+                    <select id="rpt-status-dropdown" class="form-control" style="padding:6px 10px; font-size:0.85rem;">
+                        <option value="ALL">ALL</option>
+                        <option value="PRESENT">PRESENT ONLY</option>
+                        <option value="ABSENT">ABSENT ONLY</option>
+                    </select>
+                </div>
+                <input type="text" id="rpt-search-input" class="search-box" style="width:160px; padding:6px 12px; font-size:0.85rem;" placeholder="Search ID or Name..." />
+                <button class="btn-primary" style="padding:6px 16px; font-size:0.85rem;" onclick="fetchReportData(1)">Generate Report</button>
+            </div>
+
+            <!-- Report Summary Cards Grid -->
+            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap:12px; margin-bottom:20px;">
+                <div class="stat-card" style="padding:12px 14px; text-align:center;">
+                    <div class="stat-label" style="font-size:0.7rem;">Total Students</div>
+                    <div class="stat-value" id="rpt-card-students" style="font-size:1.4rem;">0</div>
+                </div>
+                <div class="stat-card" style="padding:12px 14px; text-align:center;">
+                    <div class="stat-label" style="font-size:0.7rem;">Students Present</div>
+                    <div class="stat-value" id="rpt-card-present-st" style="font-size:1.4rem; color:var(--accent-green);">0</div>
+                </div>
+                <div class="stat-card" style="padding:12px 14px; text-align:center;">
+                    <div class="stat-label" style="font-size:0.7rem;">Students Absent</div>
+                    <div class="stat-value" id="rpt-card-absent-st" style="font-size:1.4rem; color:var(--accent-red);">0</div>
+                </div>
+                <div class="stat-card" style="padding:12px 14px; text-align:center;">
+                    <div class="stat-label" style="font-size:0.7rem;">Scheduled Periods</div>
+                    <div class="stat-value" id="rpt-card-total-slots" style="font-size:1.4rem;">0</div>
+                </div>
+                <div class="stat-card" style="padding:12px 14px; text-align:center;">
+                    <div class="stat-label" style="font-size:0.7rem;">Present Slots</div>
+                    <div class="stat-value" id="rpt-card-present-slots" style="font-size:1.4rem; color:var(--accent-green);">0</div>
+                </div>
+                <div class="stat-card" style="padding:12px 14px; text-align:center;">
+                    <div class="stat-label" style="font-size:0.7rem;">Absent Slots</div>
+                    <div class="stat-value" id="rpt-card-absent-slots" style="font-size:1.4rem; color:var(--accent-red);">0</div>
+                </div>
+                <div class="stat-card" style="padding:12px 14px; text-align:center;">
+                    <div class="stat-label" style="font-size:0.7rem;">Attendance %</div>
+                    <div class="stat-value" id="rpt-card-pct" style="font-size:1.4rem; color:var(--accent-blue);">0.0%</div>
+                </div>
+            </div>
+
+            <!-- Report Table -->
+            <div id="report-table-wrapper">
+                <table class="attendance-table" id="report-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Period</th>
+                            <th>Time Slot</th>
+                            <th>Subject</th>
+                            <th>Class Type</th>
+                            <th>Student ID</th>
+                            <th>Student Name</th>
+                            <th>Section</th>
+                            <th>Status</th>
+                            <th>Attendance Time</th>
+                        </tr>
+                    </thead>
+                    <tbody id="report-body">
+                        <tr>
+                            <td colspan="9" class="empty-state">Select report parameters and click 'Generate Report'.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Pagination Bar -->
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:16px; flex-wrap:wrap; gap:10px;">
+                <span id="rpt-page-info" style="font-size:0.85rem; color:var(--text-secondary);">Showing 0 - 0 of 0 records</span>
+                <div style="display:flex; gap:8px;">
+                    <button class="btn-primary" id="btn-rpt-prev" style="padding:6px 12px; font-size:0.8rem;" onclick="navigateReportPage(-1)">Previous</button>
+                    <button class="btn-primary" id="btn-rpt-next" style="padding:6px 12px; font-size:0.8rem;" onclick="navigateReportPage(1)">Next</button>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- TAB 4: System Settings View (Admin Only) -->
+    {% if is_admin %}
+    <div id="tab-content-settings" class="tab-content">
+        <!-- System Control & Exam Mode -->
+        <section class="table-card">
+            <div class="table-header-flex">
+                <h2>
+                    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="margin-right:6px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                    System Control & Exam Mode
+                </h2>
+                <div style="display:flex; align-items:center; gap:12px;">
+                    <button class="btn-warning" id="btn-enable-exam" onclick="toggleExamMode(true)">
+                        Enable Exam Mode
+                    </button>
+                    <button class="btn-primary" id="btn-disable-exam" onclick="toggleExamMode(false)">
+                        Disable Exam Mode
+                    </button>
+                </div>
+            </div>
+
+            <!-- Health Stats Cards -->
+            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:16px; margin-bottom:24px;">
+                <div class="stat-card" style="text-align:left;">
+                    <div class="stat-label">System Status</div>
+                    <div class="stat-value" id="sys-status-val" style="font-size:1.3rem;">ONLINE</div>
+                </div>
+                <div class="stat-card" style="text-align:left;">
+                    <div class="stat-label">Database Connection</div>
+                    <div class="stat-value" id="sys-db-val" style="font-size:1.3rem;">CONNECTED</div>
+                </div>
+                <div class="stat-card" style="text-align:left;">
+                    <div class="stat-label">Attendance Processing</div>
+                    <div class="stat-value" id="sys-rec-val" style="font-size:1.3rem; color:var(--accent-green);">ENABLED</div>
+                </div>
+                <div class="stat-card" style="text-align:left;">
+                    <div class="stat-label">Exam Mode</div>
+                    <div class="stat-value" id="sys-exam-val" style="font-size:1.3rem; color:var(--text-secondary);">OFF</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Faculty Management Section -->
+        <section class="table-card">
+            <div class="table-header-flex">
+                <h2>Faculty Management</h2>
+                <button class="btn-primary" onclick="openAddFacultyModal()">+ Add Faculty</button>
+            </div>
+            <table class="attendance-table">
+                <thead>
+                    <tr>
+                        <th>Faculty ID</th>
+                        <th>Name</th>
+                        <th>Department</th>
+                        <th>Contact</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="sys-faculty-body">
+                    <tr><td colspan="6" class="empty-state">Loading faculty...</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <!-- Camera Management Section -->
+        <section class="table-card">
+            <div class="table-header-flex">
+                <h2>CCTV Camera Management</h2>
+                <button class="btn-primary" onclick="openAddCameraModal()">+ Configure Camera</button>
+            </div>
+            <table class="attendance-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Context</th>
+                        <th>Room</th>
+                        <th>Source</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="sys-camera-body">
+                    <tr><td colspan="6" class="empty-state">Loading cameras...</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <!-- Timetable Management Section -->
+        <section class="table-card">
+            <div class="table-header-flex">
+                <h2>Timetable Management</h2>
+                <div style="display:flex; gap:10px;">
+                    <select id="tt-filter-dept" class="form-control" onchange="fetchTimetableList()">
+                        <option value="CSD">CSD</option>
+                    </select>
+                    <button class="btn-primary" onclick="openAddTimetableModal()">+ Add Entry</button>
+                </div>
+            </div>
+            <table class="attendance-table">
+                <thead>
+                    <tr>
+                        <th>Context</th>
+                        <th>Day/Period</th>
+                        <th>Time</th>
+                        <th>Subject</th>
+                        <th>Faculty</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="sys-tt-body">
+                    <tr><td colspan="6" class="empty-state">Loading timetable...</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <!-- Holiday Management Section -->
+        <section class="table-card">
+            <div class="table-header-flex">
+                <h2>Holiday Management</h2>
+                <button class="btn-primary" onclick="openAddHolidayModal()">+ Add Holiday</button>
+            </div>
+            <table class="attendance-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Description</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="sys-holiday-body">
+                    <tr><td colspan="4" class="empty-state">Loading holidays...</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <!-- Academic Semesters Management Section -->
+        <section class="table-card">
+            <div class="table-header-flex">
+                <h2>Academic Semesters Configuration</h2>
+                <button class="btn-primary" onclick="openAddSemesterModal()">+ Configure New Semester</button>
+            </div>
+            <table class="attendance-table">
+                <thead>
+                    <tr>
+                        <th>Academic Year</th>
+                        <th>Year Level</th>
+                        <th>Semester</th>
+                        <th>Start Date</th>
+                        <th>End Date</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="sys-sem-body">
+                    <tr><td colspan="7" class="empty-state">Loading semesters...</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <!-- Dynamic Department Management Section -->
+        <section class="table-card">
+            <div class="table-header-flex">
+                <h2>Dynamic Department & Camera Management</h2>
+                <button class="btn-primary" onclick="openAddDeptModal()">+ Add New Department</button>
+            </div>
+            <table class="attendance-table">
+                <thead>
+                    <tr>
+                        <th>Dept Code</th>
+                        <th>Department Name</th>
+                        <th>Camera Source</th>
+                        <th>Camera Status</th>
+                        <th>Registered Students</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="sys-dept-body">
+                    <tr><td colspan="6" class="empty-state">Loading departments...</td></tr>
+                </tbody>
+            </table>
+        </section>
+    </div>
+    {% endif %}
+
+    <footer class="footer">
+        Python AI Classroom Attendance System &copy; 2026 — {{ department_name }}
+    </footer>
+</div>
+
+<!-- Add Student / Reference Photo Modal (Admin Only) -->
+{% if is_admin %}
+<div class="modal-overlay" id="addStudentModal">
+    <div class="modal-card" style="max-width: 800px; width: 95%;">
+        <div class="modal-header">
+            <h3>Student Face Enrollment & Registry</h3>
+            <button class="close-modal-btn" onclick="closeAddStudentModal()">&times;</button>
+        </div>
+        <div class="alert-error" id="add-student-error"></div>
+        <div class="alert-success" id="add-student-success" style="display:none; padding:10px; border-radius:6px; margin-bottom:15px; background:rgba(16,185,129,0.1); color:var(--accent-green); border:1px solid var(--accent-green);"></div>
+
+        <form id="add-student-form" onsubmit="handleAddStudent(event)">
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <!-- Left Column: Metadata -->
+                <div>
+                    <h4 style="margin-bottom:15px; color:var(--text-secondary); text-transform:uppercase; font-size:0.8rem; letter-spacing:0.05em;">Academic Metadata</h4>
+                    <div class="form-group">
+                        <label for="modal-dept">Department</label>
+                        <select id="modal-dept" class="form-control" required>
+                            {% for dept in departments %}
+                            <option value="{{ dept }}">{{ dept }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+                        <div class="form-group">
+                            <label for="modal-student-id">Roll Number</label>
+                            <input type="text" id="modal-student-id" class="form-control" placeholder="e.g. 25a51a4470" required />
+                        </div>
+                        <div class="form-group">
+                            <label for="modal-student-name">Full Name</label>
+                            <input type="text" id="modal-student-name" class="form-control" placeholder="e.g. Sashi" required />
+                        </div>
+                    </div>
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+                        <div class="form-group">
+                            <label>Year Level</label>
+                            <select id="modal-student-yl" class="form-control">
+                                <option value="I">Year I</option>
+                                <option value="II">Year II</option>
+                                <option value="III">Year III</option>
+                                <option value="IV">Year IV</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Section</label>
+                            <input type="text" id="modal-student-sec" class="form-control" value="B" />
+                        </div>
+                    </div>
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+                        <div class="form-group">
+                            <label>Academic Year</label>
+                            <input type="text" id="modal-student-ay" class="form-control" placeholder="2026-27" />
+                        </div>
+                        <div class="form-group">
+                            <label>Semester</label>
+                            <input type="text" id="modal-student-sem" class="form-control" placeholder="I" />
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Enrollment Status</label>
+                        <select id="modal-student-status" class="form-control">
+                            <option value="true">Active (Mark Attendance)</option>
+                            <option value="false">Inactive</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Right Column: Face Samples -->
+                <div>
+                    <h4 style="margin-bottom:15px; color:var(--text-secondary); text-transform:uppercase; font-size:0.8rem; letter-spacing:0.05em;">Face Sample Enrollment</h4>
+
+                    <div style="display:flex; gap:10px; margin-bottom:15px;">
+                        <button type="button" class="btn-primary" style="flex:1; background:rgba(255,255,255,0.05); border:1px solid var(--card-border);" id="enroll-mode-upload" onclick="setEnrollMode('upload')">Upload Photos</button>
+                        <button type="button" class="btn-primary" style="flex:1; background:rgba(255,255,255,0.05); border:1px solid var(--card-border);" id="enroll-mode-camera" onclick="setEnrollMode('camera')">Capture from Camera</button>
+                    </div>
+
+                    <!-- Mode A: File Upload -->
+                    <div id="enroll-container-upload">
+                        <div class="form-group">
+                            <label for="modal-photo">Select Reference Photos (.jpg, .png)</label>
+                            <input type="file" id="modal-photo" class="form-control" accept=".jpg,.jpeg,.png" multiple />
+                            <p style="font-size:0.7rem; color:var(--text-secondary); margin-top:5px;">
+                                You can select multiple files at once. Each must have exactly 1 clear face.
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Mode B: Camera Capture -->
+                    <div id="enroll-container-camera" style="display:none;">
+                        <div style="position:relative; background:#000; border-radius:8px; overflow:hidden; aspect-ratio: 4/3; margin-bottom:10px; border:1px solid var(--card-border);">
+                            <video id="enroll-video" autoplay playsinline muted style="width:100%; height:100%; object-fit: cover;"></video>
+                            <canvas id="enroll-canvas" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none;"></canvas>
+                            <div id="enroll-pose-hint" style="position:absolute; bottom:10px; left:10px; right:10px; background:rgba(15,23,42,0.8); color:#fff; padding:6px 12px; border-radius:4px; font-size:0.75rem; text-align:center; border-left:3px solid var(--accent-blue);">
+                                Initializing camera...
+                            </div>
+                        </div>
+                        <div style="display:flex; gap:10px; margin-bottom:10px;">
+                            <button type="button" class="btn-primary" id="btn-camera-start" onclick="startEnrollCamera()" style="flex:1;">Start Camera</button>
+                            <button type="button" class="btn-warning" id="btn-camera-capture" onclick="captureEnrollFrame()" style="flex:1;" disabled>Capture Sample</button>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                            <span style="font-size:0.8rem; font-weight:600;">Progress: <span id="enroll-count-text">0 / 20</span></span>
+                            <div style="flex:1; height:6px; background:rgba(255,255,255,0.1); border-radius:3px; margin:0 15px; overflow:hidden;">
+                                <div id="enroll-progress-bar" style="width:0%; height:100%; background:var(--accent-blue); transition: width 0.3s ease;"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Captured Thumbnails -->
+                    <div id="enroll-thumbnails" style="display:grid; grid-template-columns:repeat(5, 1fr); gap:8px; max-height:120px; overflow-y:auto; padding:5px; background:rgba(0,0,0,0.2); border-radius:6px; border:1px solid var(--card-border);">
+                        <!-- Thumbs injected here -->
+                    </div>
+                </div>
+            </div>
+
+            <div style="display:flex; justify-content:flex-end; gap:12px; margin-top:30px; border-top:1px solid var(--card-border); padding-top:20px;">
+                <button type="button" class="btn-danger-sm" style="padding:10px 20px;" onclick="closeAddStudentModal()">Cancel</button>
+                <button type="submit" class="btn-primary" id="btn-save-student" style="padding:10px 30px;">Complete Enrollment</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Add Department Modal (Admin Only) -->
+<div class="modal-overlay" id="addCameraModal">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3>Configure CCTV Camera</h3>
+            <button class="close-modal-btn" onclick="closeAddCameraModal()">&times;</button>
+        </div>
+        <div class="alert-error" id="add-cam-error"></div>
+        <form id="add-cam-form" onsubmit="handleAddCamera(event)">
+            <div class="form-group">
+                <label>Camera Name (e.g. Front, Door)</label>
+                <input type="text" id="cam-name-input" class="form-control" required />
+            </div>
+            <div class="form-group">
+                <label>Department</label>
+                <select id="cam-dept-input" class="form-control">
+                    {% for dept in departments %}<option value="{{ dept }}">{{ dept }}</option>{% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Section</label>
+                <input type="text" id="cam-sec-input" class="form-control" value="B" required />
+            </div>
+            <div class="form-group">
+                <label>Room / Classroom</label>
+                <input type="text" id="cam-room-input" class="form-control" placeholder="Room 101" />
+            </div>
+            <div class="form-group">
+                <label>Camera Source (RTSP URL or Index)</label>
+                <input type="text" id="cam-source-input" class="form-control" required />
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                <div class="form-group"><label>Username (optional)</label><input type="text" id="cam-user-input" class="form-control" /></div>
+                <div class="form-group"><label>Password (optional)</label><input type="password" id="cam-pass-input" class="form-control" /></div>
+            </div>
+            <div style="margin-top:20px;">
+                <button type="submit" class="btn-primary" id="btn-save-cam" style="width:100%;">Save Camera Configuration</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="modal-overlay" id="addFacultyModal">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3>Configure Faculty Member</h3>
+            <button class="close-modal-btn" onclick="closeAddFacultyModal()">&times;</button>
+        </div>
+        <div class="alert-error" id="add-faculty-error"></div>
+        <form id="add-faculty-form" onsubmit="handleAddFaculty(event)">
+            <div class="form-group">
+                <label for="fac-id-input">Faculty ID</label>
+                <input type="text" id="fac-id-input" class="form-control" required />
+            </div>
+            <div class="form-group">
+                <label for="fac-name-input">Faculty Name</label>
+                <input type="text" id="fac-name-input" class="form-control" required />
+            </div>
+            <div class="form-group">
+                <label for="fac-dept-input">Department</label>
+                <select id="fac-dept-input" class="form-control">
+                    {% for dept in departments %}<option value="{{ dept }}">{{ dept }}</option>{% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="fac-phone-input">Phone Number</label>
+                <input type="text" id="fac-phone-input" class="form-control" />
+            </div>
+            <div class="form-group">
+                <label for="fac-email-input">Email Address</label>
+                <input type="email" id="fac-email-input" class="form-control" />
+            </div>
+            <div style="margin-top:20px;">
+                <button type="submit" class="btn-primary" id="btn-save-faculty" style="width:100%;">Save Faculty</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="modal-overlay" id="addTimetableModal">
+    <div class="modal-card" style="max-width:600px;">
+        <div class="modal-header">
+            <h3>Add Timetable Entry</h3>
+            <button class="close-modal-btn" onclick="closeAddTimetableModal()">&times;</button>
+        </div>
+        <div class="alert-error" id="add-tt-error"></div>
+        <form id="add-tt-form" onsubmit="handleAddTimetable(event)">
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px;">
+                <div class="form-group">
+                    <label>Academic Year</label>
+                    <input type="text" id="tt-ay" class="form-control" value="2026-27" required />
+                </div>
+                <div class="form-group">
+                    <label>Year Level</label>
+                    <select id="tt-yl" class="form-control">
+                        <option value="I">I</option><option value="II" selected>II</option><option value="III">III</option><option value="IV">IV</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Semester</label>
+                    <select id="tt-sm" class="form-control">
+                        <option value="I" selected>I</option><option value="II">II</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Department</label>
+                    <select id="tt-dept" class="form-control">
+                        {% for dept in departments %}<option value="{{ dept }}">{{ dept }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Section</label>
+                    <input type="text" id="tt-sec" class="form-control" value="B" required />
+                </div>
+                <div class="form-group">
+                    <label>Day</label>
+                    <select id="tt-day" class="form-control">
+                        <option value="MON">Monday</option><option value="TUE">Tuesday</option><option value="WED">Wednesday</option>
+                        <option value="THU">Thursday</option><option value="FRI">Friday</option><option value="SAT">Saturday</option>
+                    </select>
+                </div>
+            </div>
+            <div style="display:grid; grid-template-columns:80px 1fr 1fr; gap:15px; margin-top:10px;">
+                <div class="form-group"><label>Period</label><input type="number" id="tt-p" class="form-control" value="1" required /></div>
+                <div class="form-group"><label>Start</label><input type="time" id="tt-start" class="form-control" required /></div>
+                <div class="form-group"><label>End</label><input type="time" id="tt-end" class="form-control" required /></div>
+            </div>
+            <div class="form-group">
+                <label>Subject</label>
+                <input type="text" id="tt-subj" class="form-control" required />
+            </div>
+            <div class="form-group">
+                <label>Faculty</label>
+                <select id="tt-fac" class="form-control">
+                    <option value="">Select Faculty...</option>
+                </select>
+            </div>
+            <div style="margin-top:20px;">
+                <button type="submit" class="btn-primary" id="btn-save-tt" style="width:100%;">Save Timetable Entry</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="modal-overlay" id="addHolidayModal">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3>Add Holiday</h3>
+            <button class="close-modal-btn" onclick="closeAddHolidayModal()">&times;</button>
+        </div>
+        <form id="add-holiday-form" onsubmit="handleAddHoliday(event)">
+            <div class="form-group">
+                <label>Date</label>
+                <input type="date" id="h-date-input" class="form-control" required />
+            </div>
+            <div class="form-group">
+                <label>Description</label>
+                <input type="text" id="h-desc-input" class="form-control" placeholder="e.g. Independence Day" required />
+            </div>
+            <div style="margin-top:20px;">
+                <button type="submit" class="btn-primary" style="width:100%;">Save Holiday</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="modal-overlay" id="addSemesterModal">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3>Configure Academic Semester</h3>
+            <button class="close-modal-btn" onclick="closeAddSemesterModal()">&times;</button>
+        </div>
+        <div class="alert-error" id="add-sem-error"></div>
+        <form id="add-sem-form" onsubmit="handleAddSemester(event)">
+            <div class="form-group">
+                <label for="sem-ay-input">Academic Year (e.g. 2026-27)</label>
+                <input type="text" id="sem-ay-input" class="form-control" placeholder="2026-27" required />
+            </div>
+            <div class="form-group">
+                <label for="sem-yl-input">Year Level</label>
+                <select id="sem-yl-input" class="form-control" required>
+                    <option value="I">I</option>
+                    <option value="II" selected>II</option>
+                    <option value="III">III</option>
+                    <option value="IV">IV</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="sem-val-input">Semester</label>
+                <select id="sem-val-input" class="form-control" required>
+                    <option value="I" selected>I</option>
+                    <option value="II">II</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="sem-sd-input">Start Date</label>
+                <input type="date" id="sem-sd-input" class="form-control" required />
+            </div>
+            <div class="form-group">
+                <label for="sem-ed-input">End Date</label>
+                <input type="date" id="sem-ed-input" class="form-control" required />
+            </div>
+            <div style="margin-top:20px;">
+                <button type="submit" class="btn-primary" id="btn-save-sem" style="width:100%;">Save Semester Configuration</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="modal-overlay" id="addDeptModal">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3>Add New Department</h3>
+            <button class="close-modal-btn" onclick="closeAddDeptModal()">&times;</button>
+        </div>
+        <div class="alert-error" id="add-dept-error"></div>
+        <form id="add-dept-form" onsubmit="handleAddDept(event)">
+            <div class="form-group">
+                <label for="dept-code-input">Department Code (e.g. CSD, AIML)</label>
+                <input type="text" id="dept-code-input" class="form-control" placeholder="e.g. AIML" required />
+            </div>
+            <div class="form-group">
+                <label for="dept-name-input">Department Name</label>
+                <input type="text" id="dept-name-input" class="form-control" placeholder="e.g. Artificial Intelligence & Machine Learning" required />
+            </div>
+            <div class="form-group">
+                <label for="dept-cam-input">Camera Source (0 for webcam, RTSP URL, or file path)</label>
+                <input type="text" id="dept-cam-input" class="form-control" placeholder="e.g. 0 or rtsp://192.168.1.10/stream" />
+            </div>
+            <div style="display:flex; justify-content:flex-end; gap:12px; margin-top:20px;">
+                <button type="button" class="btn-danger-sm" style="padding:8px 16px;" onclick="closeAddDeptModal()">Cancel</button>
+                <button type="submit" class="btn-primary" id="btn-save-dept">Create Department</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+<script>
+    const isAdmin = {{ 'true' if is_admin else 'false' }};
+    let activeDept = "{{ department_code }}";
+
+    function switchTab(tabName) {
+        document.querySelectorAll('.nav-tab-btn').forEach(btn => btn.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+
+        const targetBtn = document.getElementById(`tab-btn-${tabName}`);
+        const targetContent = document.getElementById(`tab-content-${tabName}`);
+
+        if (targetBtn && targetContent) {
+            targetBtn.classList.add('active');
+            targetContent.classList.add('active');
+        }
+
+        if (tabName === 'live') fetchAttendanceData();
+        if (tabName === 'students') fetchStudentData();
+        if (tabName === 'history') fetchHistoryData();
+        if (tabName === 'reports') {
+            if (!document.getElementById('rpt-start-date').value) handleReportModeChange('daily');
+            else fetchReportData(1);
+        }
+        if (tabName === 'settings' && isAdmin) fetchSystemStatus();
+    }
+
+    function fetchSystemStatus() {
+        fetch('/api/system/status')
+            .then(res => res.json())
+            .then(data => {
+                const banner = document.getElementById('exam-mode-banner');
+                if (data.exam_mode) {
+                    banner.style.display = 'flex';
+                } else {
+                    banner.style.display = 'none';
+                }
+
+                if (data.current_hourly_period) {
+                    document.getElementById('current-period-val').innerText = data.current_hourly_period;
+                }
+
+                if (isAdmin) {
+                    document.getElementById('sys-status-val').innerText = data.status || 'ONLINE';
+                    document.getElementById('sys-db-val').innerText = data.db_connected ? 'CONNECTED' : 'OFFLINE';
+                    document.getElementById('sys-db-val').style.color = data.db_connected ? 'var(--accent-green)' : 'var(--accent-red)';
+
+                    const recVal = document.getElementById('sys-rec-val');
+                    const examVal = document.getElementById('sys-exam-val');
+
+                    if (data.exam_mode) {
+                        recVal.innerText = 'PAUSED (EXAM MODE)';
+                        recVal.style.color = 'var(--accent-amber)';
+                        examVal.innerText = 'ACTIVE (ON)';
+                        examVal.style.color = 'var(--accent-amber)';
+                    } else {
+                        recVal.innerText = 'ENABLED';
+                        recVal.style.color = 'var(--accent-green)';
+                        examVal.innerText = 'OFF';
+                        examVal.style.color = 'var(--text-secondary)';
+                    }
+
+                    fetchDepartmentsList();
+                    fetchSemesters();
+                    fetchFacultyList();
+                    fetchTimetableList();
+                    fetchHolidaysList();
+                    fetchCameraList();
+                }
+            })
+            .catch(err => console.error("Error fetching system status:", err));
+    }
+
+    function applyZoom(val) {
+        const img = document.getElementById('live-stream-img');
+        if (img) img.style.transform = `scale(${val})`;
+    }
+
+    function fetchClassroomCameras() {
+        const dept = isAdmin ? activeDept : '{{ department_code }}';
+        const sec = document.getElementById('live-section-select').value;
+        fetch(`/api/cameras/registry?department=${dept}&section=${sec}&active_only=true`)
+        .then(res => res.json())
+        .then(data => {
+            const select = document.getElementById('live-camera-select');
+            if (!data.cameras || data.cameras.length === 0) {
+                select.innerHTML = '<option value="Default">Default Camera</option>';
+            } else {
+                let html = '';
+                data.cameras.forEach(c => {
+                    html += `<option value="${c.name}">${c.name} (${c.classroom || '-'})</option>`;
+                });
+                select.innerHTML = html;
+            }
+            switchCameraView();
+        });
+    }
+
+    function switchCameraView() {
+        const dept = isAdmin ? activeDept : '{{ department_code }}';
+        const sec = document.getElementById('live-section-select').value;
+        const cam = document.getElementById('live-camera-select').value;
+        const img = document.getElementById('live-stream-img');
+        if (img) {
+            // Include section and cam in feed query
+            img.src = `/video_feed?dept=${dept}&section=${sec}&cam=${encodeURIComponent(cam)}&t=${new Date().getTime()}`;
+        }
+    }
+
+    function fetchCameraList() {
+        if (!isAdmin) return;
+        fetch('/api/cameras/registry')
+        .then(res => res.json())
+        .then(data => {
+            const tbody = document.getElementById('sys-camera-body');
+            if (!data.cameras || data.cameras.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No cameras configured.</td></tr>';
+            } else {
+                let html = '';
+                data.cameras.forEach(c => {
+                    const status = c.is_active ? '<span class="status-badge-present">ACTIVE</span>' : '<span class="status-badge-amber">INACTIVE</span>';
+                    html += `<tr><td>${c.name}</td><td>${c.department}-${c.section}</td><td>${c.classroom || '-'}</td><td><code>${c.source}</code></td><td>${status}</td><td><button class="btn-primary" style="padding:4px 8px; font-size:0.7rem; background:#ef4444;" onclick="deleteCamera(${c.id})">Delete</button></td></tr>`;
+                });
+                tbody.innerHTML = html;
+            }
+        });
+    }
+
+    function openAddCameraModal() { document.getElementById('addCameraModal').classList.add('active'); }
+    function closeAddCameraModal() { document.getElementById('addCameraModal').classList.remove('active'); }
+
+    function handleAddCamera(e) {
+        e.preventDefault();
+        const btn = document.getElementById('btn-save-cam');
+        const data = {
+            name: document.getElementById('cam-name-input').value.trim(),
+            department: document.getElementById('cam-dept-input').value,
+            section: document.getElementById('cam-sec-input').value.trim(),
+            classroom: document.getElementById('cam-room-input').value.trim(),
+            source: document.getElementById('cam-source-input').value.trim(),
+            username: document.getElementById('cam-user-input').value.trim(),
+            password: document.getElementById('cam-pass-input').value,
+            is_active: true
+        };
+        btn.disabled = true;
+
+        fetch('/api/cameras/registry', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        })
+        .then(res => res.json())
+        .then(d => {
+            btn.disabled = false;
+            if(d.success) {
+                closeAddCameraModal();
+                fetchCameraList();
+                fetchClassroomCameras();
+            } else {
+                alert(d.error || d.message);
+            }
+        });
+    }
+
+    function deleteCamera(id) {
+        if(confirm('Are you sure you want to delete this camera configuration?')) {
+            fetch(`/api/cameras/registry/${id}`, { method: 'DELETE' })
+            .then(res => res.json())
+            .then(d => {
+                if(d.success) fetchCameraList();
+                else alert("Failed to delete camera.");
+            });
+        }
+    }
+
+    function fetchFacultyList() {
+        const dept = isAdmin ? 'ALL' : activeDept;
+        fetch(`/api/faculty?department=${dept}`)
+        .then(res => res.json())
+        .then(data => {
+            const tbody = document.getElementById('sys-faculty-body');
+            const select = document.getElementById('tt-fac');
+            if (data.faculty.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No faculty registered.</td></tr>';
+                select.innerHTML = '<option value="">No faculty available</option>';
+            } else {
+                let html = '';
+                let opts = '<option value="">Select Faculty...</option>';
+                data.faculty.forEach(f => {
+                    const status = f.is_active ? '<span class="status-badge-present">ACTIVE</span>' : '<span class="status-badge-amber">INACTIVE</span>';
+                    html += `<tr><td>${f.faculty_id}</td><td>${f.name}</td><td>${f.department}</td><td>${f.phone || f.email || '-'}</td><td>${status}</td><td><button class="btn-primary" style="padding:4px 8px; font-size:0.7rem; background:#ef4444;" onclick="deleteFaculty('${f.faculty_id}')">Delete</button></td></tr>`;
+                    opts += `<option value="${f.faculty_id}">${f.name} (${f.department})</option>`;
+                });
+                tbody.innerHTML = html;
+                select.innerHTML = opts;
+            }
+        });
+    }
+
+    function fetchTimetableList() {
+        const dept = document.getElementById('tt-filter-dept').value;
+        // Fetch all sections/days for this dept for management
+        fetch(`/api/timetable/schedule?department=${dept}&section=B`)
+        .then(res => res.json())
+        .then(data => {
+            const tbody = document.getElementById('sys-tt-body');
+            if (!data.timetable || data.timetable.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No timetable entries found.</td></tr>';
+            } else {
+                let html = '';
+                data.timetable.forEach(t => {
+                    html += `<tr><td>${t.academic_year} ${t.year_level} ${t.semester}</td><td>${t.day_of_week} P${t.period_number}</td><td>${t.start_time}-${t.end_time}</td><td>${t.subject}</td><td>${t.faculty_name || '-'}</td><td><button class="btn-primary" style="padding:4px 8px; font-size:0.7rem; background:#ef4444;" onclick="deleteTimetable(${t.id})">Remove</button></td></tr>`;
+                });
+                tbody.innerHTML = html;
+            }
+        });
+    }
+
+    function fetchHolidaysList() {
+        fetch('/api/holidays')
+        .then(res => res.json())
+        .then(data => {
+            const tbody = document.getElementById('sys-holiday-body');
+            if (data.holidays.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No holidays configured.</td></tr>';
+            } else {
+                let html = '';
+                data.holidays.forEach(h => {
+                    html += `<tr><td>${h.holiday_date}</td><td>${h.description}</td><td>ACTIVE</td><td><button class="btn-primary" style="padding:4px 8px; font-size:0.7rem; background:#ef4444;" onclick="deleteHoliday('${h.holiday_date}')">Remove</button></td></tr>`;
+                });
+                tbody.innerHTML = html;
+            }
+        });
+    }
+
+    // Modal Control Functions
+    function openAddFacultyModal() { document.getElementById('addFacultyModal').classList.add('active'); }
+    function closeAddFacultyModal() { document.getElementById('addFacultyModal').classList.remove('active'); }
+    function openAddTimetableModal() { document.getElementById('addTimetableModal').classList.add('active'); }
+    function closeAddTimetableModal() { document.getElementById('addTimetableModal').classList.remove('active'); }
+    function openAddHolidayModal() { document.getElementById('addHolidayModal').classList.add('active'); }
+    function closeAddHolidayModal() { document.getElementById('addHolidayModal').classList.remove('active'); }
+
+    function handleAddFaculty(e) {
+        e.preventDefault();
+        const data = {
+            faculty_id: document.getElementById('fac-id-input').value.trim(),
+            name: document.getElementById('fac-name-input').value.trim(),
+            department: document.getElementById('fac-dept-input').value,
+            phone: document.getElementById('fac-phone-input').value.trim(),
+            email: document.getElementById('fac-email-input').value.trim(),
+            is_active: true
+        };
+        fetch('/api/faculty', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+        .then(res => res.json()).then(d => { if(d.success) { closeAddFacultyModal(); fetchFacultyList(); } else alert(d.error); });
+    }
+
+    function handleAddTimetable(e) {
+        e.preventDefault();
+        const data = {
+            academic_year: document.getElementById('tt-ay').value,
+            year_level: document.getElementById('tt-yl').value,
+            semester: document.getElementById('tt-sm').value,
+            department: document.getElementById('tt-dept').value,
+            section: document.getElementById('tt-sec').value,
+            day_of_week: document.getElementById('tt-day').value,
+            period_number: document.getElementById('tt-p').value,
+            start_time: document.getElementById('tt-start').value,
+            end_time: document.getElementById('tt-end').value,
+            subject: document.getElementById('tt-subj').value,
+            faculty_id: document.getElementById('tt-fac').value,
+            class_type: 'THEORY'
+        };
+        fetch('/api/timetable/entries', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+        .then(res => res.json()).then(d => { if(d.success) { closeAddTimetableModal(); fetchTimetableList(); } else alert(d.error); });
+    }
+
+    function handleAddHoliday(e) {
+        e.preventDefault();
+        const data = {
+            holiday_date: document.getElementById('h-date-input').value,
+            description: document.getElementById('h-desc-input').value,
+            is_active: true
+        };
+        fetch('/api/holidays', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+        .then(res => res.json()).then(d => { if(d.success) { closeAddHolidayModal(); fetchHolidaysList(); } else alert(d.error); });
+    }
+
+    function deleteFaculty(id) { if(confirm('Delete faculty?')) fetch(`/api/faculty/${id}`, { method: 'DELETE' }).then(()=>fetchFacultyList()); }
+    function deleteTimetable(id) { if(confirm('Remove entry?')) fetch(`/api/timetable/${id}`, { method: 'DELETE' }).then(()=>fetchTimetableList()); }
+    function deleteHoliday(date) { if(confirm('Remove holiday?')) fetch(`/api/holidays/${date}`, { method: 'DELETE' }).then(()=>fetchHolidaysList()); }
+
+    function fetchSemesters() {
+        fetch('/api/semesters')
+        .then(res => res.json())
+        .then(data => {
+            if (!data.success) return;
+
+            // Populate system configuration table
+            const tbody = document.getElementById('sys-sem-body');
+            if (data.semesters.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No semesters configured.</td></tr>';
+            } else {
+                let html = '';
+                data.semesters.forEach(s => {
+                    const status = s.is_active ? '<span class="status-badge-present">ACTIVE</span>' : '<span class="status-badge-amber">INACTIVE</span>';
+                    html += `
+                        <tr>
+                            <td>${s.academic_year}</td>
+                            <td>Year ${s.year_level}</td>
+                            <td>Sem ${s.semester}</td>
+                            <td>${s.start_date}</td>
+                            <td>${s.end_date}</td>
+                            <td>${status}</td>
+                            <td><button class="btn-primary" style="padding:4px 8px; font-size:0.7rem;" onclick="promptEditSemester('${s.academic_year}','${s.year_level}','${s.semester}','${s.start_date}','${s.end_date}')">Edit Dates</button></td>
+                        </tr>
+                    `;
+                });
+                tbody.innerHTML = html;
+            }
+
+            // Populate report dropdowns
+            const aySet = new Set();
+            const ylSet = new Set();
+            const smSet = new Set();
+            data.semesters.forEach(s => {
+                aySet.add(s.academic_year);
+                ylSet.add(s.year_level);
+                smSet.add(s.semester);
+            });
+
+            populateDropdown('rpt-academic-dropdown', aySet, 'ALL YEARS');
+            populateDropdown('rpt-yearlevel-dropdown', ylSet, 'ALL');
+            populateDropdown('rpt-semester-dropdown', smSet, 'ALL');
+        });
+    }
+
+    function populateDropdown(id, set, allLabel) {
+        const select = document.getElementById(id);
+        if (!select) return;
+        const current = select.value;
+        select.innerHTML = `<option value="">${allLabel}</option>`;
+        Array.from(set).sort().forEach(val => {
+            const opt = document.createElement('option');
+            opt.value = val;
+            opt.innerText = val;
+            if (val === current) opt.selected = true;
+            select.appendChild(opt);
+        });
+    }
+
+    function promptEditSemester(ay, yl, sm, sd, ed) {
+        const newSd = prompt(`Update Start Date for ${ay} Year ${yl} Sem ${sm}:`, sd);
+        if (!newSd) return;
+        const newEd = prompt(`Update End Date for ${ay} Year ${yl} Sem ${sm}:`, ed);
+        if (!newEd) return;
+
+        fetch('/api/semesters', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ academic_year: ay, year_level: yl, semester: sm, start_date: newSd, end_date: newEd, is_active: true })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) fetchSemesters();
+            else alert(data.error);
+        });
+    }
+
+    function fetchDepartmentsList() {
+        if (!isAdmin) return;
+        fetch('/api/departments')
+            .then(res => res.json())
+            .then(data => {
+                const tbody = document.getElementById('sys-dept-body');
+                let html = '';
+                (data.departments || []).forEach(d => {
+                    const statusBadge = d.is_enabled ? '<span class="status-badge-present">ACTIVE</span>' : '<span class="status-badge-amber">DISABLED</span>';
+                    html += `
+                        <tr>
+                            <td><strong>${d.code}</strong></td>
+                            <td>${d.name}</td>
+                            <td><code>${d.camera_source || 'None'}</code></td>
+                            <td>${statusBadge}</td>
+                            <td>Registered</td>
+                            <td>
+                                <button class="btn-primary" style="padding:4px 8px; font-size:0.75rem;" onclick="promptEditCamera('${d.code}', '${d.camera_source || ''}')">Set Camera</button>
+                            </td>
+                        </tr>
+                    `;
+                });
+                tbody.innerHTML = html || '<tr><td colspan="6" class="empty-state">No departments registered.</td></tr>';
+            });
+    }
+
+    function toggleExamMode(enable) {
+        const endpoint = enable ? '/api/system/exam-mode/enable' : '/api/system/exam-mode/disable';
+        fetch(endpoint, { method: 'POST' })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) fetchSystemStatus();
+                else alert(data.error || "Failed to update Exam Mode.");
+            });
+    }
+
+    function updateTimetableUI() {
+        if (activeDept !== "CSD") {
+            document.getElementById('current-class-card').style.display = 'none';
+            document.getElementById('timetable-section').style.display = 'none';
+            return;
+        }
+
+        // Fetch Current Class Info
+        fetch('/api/timetable/current?department=CSD&section=B')
+            .then(res => res.json())
+            .then(data => {
+                const card = document.getElementById('current-class-card');
+                const badge = document.getElementById('class-status-badge');
+
+                if (!data.success) {
+                    document.getElementById('current-subject').innerText = "Timetable unavailable";
+                    return;
+                }
+
+                card.style.display = 'block';
+                badge.innerText = data.status.replace('_', ' ');
+
+                if (data.status === 'ACTIVE') {
+                    badge.className = 'status-badge-present';
+                    document.getElementById('current-subject').innerText = data.subject || '--';
+                    document.getElementById('current-period-info').innerText = `Period ${data.period_number} (${data.class_type})`;
+                    document.getElementById('current-time-range').innerText = `${data.start_time.substring(0,5)} - ${data.end_time.substring(0,5)}`;
+
+                    // Calculate remaining time
+                    const now = new Date();
+                    const endParts = data.end_time.split(':');
+                    const endTime = new Date();
+                    endTime.setHours(parseInt(endParts[0]), parseInt(endParts[1]), parseInt(endParts[2] || 0));
+
+                    const diffMs = endTime - now;
+                    if (diffMs > 0) {
+                        const diffMins = Math.floor(diffMs / 60000);
+                        const diffSecs = Math.floor((diffMs % 60000) / 1000);
+                        document.getElementById('current-remaining').innerText = `${diffMins}m ${diffSecs}s`;
+                    } else {
+                        document.getElementById('current-remaining').innerText = "Ending...";
+                    }
+                } else {
+                    badge.className = 'status-badge-amber';
+                    document.getElementById('current-subject').innerText = "--";
+                    document.getElementById('current-period-info').innerText = "--";
+                    document.getElementById('current-time-range').innerText = "--";
+                    document.getElementById('current-remaining').innerText = "--";
+
+                    if (data.status === 'BEFORE_CLASS') document.getElementById('current-subject').innerText = "Class hasn't started";
+                    if (data.status === 'LUNCH') document.getElementById('current-subject').innerText = "Lunch Break";
+                    if (data.status === 'NO_CLASS') document.getElementById('current-subject').innerText = "No class scheduled";
+                }
+            })
+            .catch(err => console.error("Error fetching current timetable:", err));
+
+        // Fetch Today's Schedule
+        fetch('/api/timetable/schedule?department=CSD&section=B')
+            .then(res => res.json())
+            .then(data => {
+                const section = document.getElementById('timetable-section');
+                const tbody = document.getElementById('timetable-body');
+
+                if (!data.success || !data.timetable || data.timetable.length === 0) {
+                    section.style.display = 'none';
+                    return;
+                }
+
+                section.style.display = 'block';
+                let html = '';
+
+                // Get current period to highlight
+                fetch('/api/timetable/current?department=CSD&section=B')
+                    .then(cres => cres.json())
+                    .then(curr => {
+                        data.timetable.forEach(entry => {
+                            const isActive = curr.status === 'ACTIVE' && curr.period_number === entry.period_number;
+                            const rowStyle = isActive ? 'background: rgba(59, 130, 246, 0.15); border-left: 3px solid var(--accent-blue);' : '';
+                            const statusBadge = isActive ? '<span class="status-badge-present">ACTIVE</span>' : '<span class="status-badge-active">SCHEDULED</span>';
+
+                            html += `
+                                <tr style="${rowStyle}">
+                                    <td><strong>P${entry.period_number}</strong></td>
+                                    <td>${entry.start_time.substring(0,5)} - ${entry.end_time.substring(0,5)}</td>
+                                    <td>${entry.subject}</td>
+                                    <td>${entry.class_type}</td>
+                                    <td>${statusBadge}</td>
+                                </tr>
+                            `;
+                        });
+                        tbody.innerHTML = html;
+                    });
+            })
+            .catch(err => console.error("Error fetching timetable schedule:", err));
+    }
+
+    function fetchAttendanceData() {
+        const url = isAdmin ? '/api/attendance/today?dept=' + activeDept : '/api/attendance/today';
+        fetch(url)
+            .then(response => response.json())
+            .then(data => {
+                if (data.current_period) {
+                    document.getElementById('current-period-val').innerText = data.current_period;
+                }
+                document.getElementById('present-count-val').innerText = data.count !== undefined ? data.count : 0;
+
+                const tbody = document.getElementById('attendance-body');
+                if (!data.attendance || data.attendance.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No attendance records for today\'s period yet.</td></tr>';
+                    return;
+                }
+
+                let html = '';
+                data.attendance.forEach(record => {
+                    const periodLabel = record.period_number ? `P${record.period_number}` : record.hourly_period;
+                    const subjectLabel = record.subject || "--";
+                    const deptSec = record.section ? `${record.department}-${record.section}` : record.department;
+
+                    html += `
+                        <tr>
+                            <td><span class="status-badge-active">${periodLabel}</span></td>
+                            <td style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${subjectLabel}</td>
+                            <td><strong>${record.student_id}</strong></td>
+                            <td>${record.student_name}</td>
+                            <td><span class="dept-badge">${deptSec}</span></td>
+                            <td>${record.attendance_time}</td>
+                            <td><span class="status-badge-present">${record.status}</span></td>
+                        </tr>
+                    `;
+                });
+                tbody.innerHTML = html;
+                filterTable();
+            });
+    }
+
+    function fetchStudentData() {
+        const url = isAdmin ? '/api/students?dept=' + activeDept : '/api/students';
+        fetch(url)
+            .then(response => response.json())
+            .then(data => {
+                const tbody = document.getElementById('student-body');
+                if (!data.students || data.students.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="8" class="empty-state">No registered students found.</td></tr>`;
+                    return;
+                }
+
+                let html = '';
+                data.students.forEach(s => {
+                    const statusClass = s.status === 'Active' ? 'status-badge-present' : 'status-badge-amber';
+                    const enrollData = JSON.stringify(s).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+
+                    html += `
+                        <tr>
+                            <td><strong>${s.student_id}</strong></td>
+                            <td>${s.student_name}</td>
+                            <td><span class="dept-badge">${s.department_code}</span></td>
+                            <td>${s.academic_year || '-'}<br/><small>Sem ${s.semester || '-'}</small></td>
+                            <td>Year ${s.year_level || '-'}<br/><small>Sec ${s.section || '-'}</small></td>
+                            <td><strong>${s.photo_count || 0} photo(s)</strong></td>
+                            <td><span class="status-badge-active ${statusClass}">${s.status}</span></td>
+                            <td>
+                                <div style="display:flex; gap:6px;">
+                                    <button class="btn-primary" style="padding:4px 8px; font-size:0.7rem;" onclick='openAddStudentModal(${enrollData})'>Edit</button>
+                                    <button class="btn-danger-sm" style="padding:4px 8px; font-size:0.7rem;" onclick="deleteStudent('${s.department_code}', '${s.student_id}')">Del</button>
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                });
+                tbody.innerHTML = html;
+                filterStudentTable();
+            });
+    }
+
+    function fetchHistoryData() {
+        const startDate = document.getElementById('history-start-date').value;
+        const endDate = document.getElementById('history-end-date').value;
+        const search = document.getElementById('history-search').value.trim();
+        const deptSelect = document.getElementById('history-dept-dropdown');
+        const dept = deptSelect ? deptSelect.value : activeDept;
+
+        let url = `/api/attendance/history?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}&search=${encodeURIComponent(search)}&dept=${encodeURIComponent(dept)}`;
+
+        fetch(url)
+            .then(res => res.json())
+            .then(data => {
+                const tbody = document.getElementById('history-body');
+                if (!data.records || data.records.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No matching attendance records found.</td></tr>';
+                    return;
+                }
+
+                let html = '';
+                data.records.forEach(r => {
+                    html += `
+                        <tr>
+                            <td>${r.attendance_date}</td>
+                            <td>${r.attendance_time}</td>
+                            <td><span class="status-badge-active">${r.hourly_period}</span></td>
+                            <td><strong>${r.student_id}</strong></td>
+                            <td>${r.student_name}</td>
+                            <td><span class="dept-badge">${r.department}</span></td>
+                            <td><span class="status-badge-present">${r.status}</span></td>
+                        </tr>
+                    `;
+                });
+                tbody.innerHTML = html;
+            });
+    }
+
+    function clearHistoryFilters() {
+        document.getElementById('history-start-date').value = '';
+        document.getElementById('history-end-date').value = '';
+        document.getElementById('history-search').value = '';
+        const deptSelect = document.getElementById('history-dept-dropdown');
+        if (deptSelect) deptSelect.value = 'ALL';
+        fetchHistoryData();
+    }
+
+    function exportHistoryCSV() {
+        const startDate = document.getElementById('history-start-date').value;
+        const endDate = document.getElementById('history-end-date').value;
+        const search = document.getElementById('history-search').value.trim();
+        const deptSelect = document.getElementById('history-dept-dropdown');
+        const dept = deptSelect ? deptSelect.value : activeDept;
+
+        let url = `/api/attendance/export?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}&search=${encodeURIComponent(search)}&dept=${encodeURIComponent(dept)}&format=csv`;
+        window.location.href = url;
+    }
+
+    function filterTable() {
+        const query = document.getElementById('table-search').value.toLowerCase();
+        const rows = document.querySelectorAll('#attendance-body tr');
+        rows.forEach(row => {
+            row.style.display = row.innerText.toLowerCase().includes(query) ? '' : 'none';
+        });
+    }
+
+    function filterStudentTable() {
+        const query = document.getElementById('student-search').value.toLowerCase();
+        const rows = document.querySelectorAll('#student-body tr');
+        rows.forEach(row => {
+            row.style.display = row.innerText.toLowerCase().includes(query) ? '' : 'none';
+        });
+    }
+
+    function handleStreamError() {
+        setTimeout(() => {
+            const img = document.getElementById('live-stream-img');
+            if (img) {
+                const currentSrc = img.src.split('?')[0];
+                const params = new URLSearchParams(img.src.split('?')[1] || '');
+                params.set('t', new Date().getTime());
+                img.src = currentSrc + '?' + params.toString();
+            }
+        }, 3000);
+    }
+
+    function switchDepartment(deptCode) {
+        activeDept = deptCode;
+        const badge = document.getElementById('active-dept-badge');
+        if (badge) badge.innerText = `${deptCode} Department`;
+        const img = document.getElementById('live-stream-img');
+        if (img) img.src = '/video_feed?dept=' + deptCode + '&t=' + new Date().getTime();
+        fetchAttendanceData();
+        fetchStudentData();
+        fetchHistoryData();
+        fetchClassroomCameras();
+    }
+
+    let enrollMode = 'upload';
+    let enrollStream = null;
+    let capturedSamples = [];
+    const MAX_SAMPLES = 20;
+
+    const POSE_GUIDE = [
+        "Look straight at the camera (Front View)",
+        "Tilt your head slightly LEFT",
+        "Turn your head further LEFT",
+        "Tilt your head slightly RIGHT",
+        "Turn your head further RIGHT",
+        "Look slightly UP",
+        "Look slightly DOWN",
+        "Smile naturally",
+        "Maintain a neutral expression",
+        "Tilt head slightly LEFT and UP",
+        "Tilt head slightly RIGHT and UP",
+        "Tilt head slightly LEFT and DOWN",
+        "Tilt head slightly RIGHT and DOWN",
+        "Express slightly (e.g. raised eyebrows)",
+        "Turn head 45 degrees LEFT",
+        "Turn head 45 degrees RIGHT",
+        "Look straight (Second Check)",
+        "Blink or close eyes briefly",
+        "Move your head naturally for variety",
+        "One final clear front shot"
+    ];
+
+    function setEnrollMode(mode) {
+        enrollMode = mode;
+        const uploadBtn = document.getElementById('enroll-mode-upload');
+        const cameraBtn = document.getElementById('enroll-mode-camera');
+        const uploadCont = document.getElementById('enroll-container-upload');
+        const cameraCont = document.getElementById('enroll-container-camera');
+
+        if (mode === 'camera') {
+            uploadBtn.style.background = 'rgba(255,255,255,0.05)';
+            cameraBtn.style.background = 'var(--accent-blue)';
+            uploadCont.style.display = 'none';
+            cameraCont.style.display = 'block';
+        } else {
+            cameraBtn.style.background = 'rgba(255,255,255,0.05)';
+            uploadBtn.style.background = 'var(--accent-blue)';
+            cameraCont.style.display = 'none';
+            uploadCont.style.display = 'block';
+            stopEnrollCamera();
+        }
+    }
+
+    async function startEnrollCamera() {
+        const video = document.getElementById('enroll-video');
+        const btn = document.getElementById('btn-camera-start');
+        const captureBtn = document.getElementById('btn-camera-capture');
+
+        try {
+            enrollStream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+            video.srcObject = enrollStream;
+            btn.innerText = "Camera Active";
+            btn.disabled = true;
+            captureBtn.disabled = false;
+            updatePoseHint();
+        } catch (err) {
+            console.error("Camera access denied:", err);
+            alert("Could not access camera. Please check permissions.");
+        }
+    }
+
+    function stopEnrollCamera() {
+        if (enrollStream) {
+            enrollStream.getTracks().forEach(track => track.stop());
+            enrollStream = null;
+        }
+        const video = document.getElementById('enroll-video');
+        if (video) video.srcObject = null;
+        const btn = document.getElementById('btn-camera-start');
+        if (btn) {
+            btn.innerText = "Start Camera";
+            btn.disabled = false;
+        }
+        const captureBtn = document.getElementById('btn-camera-capture');
+        if (captureBtn) captureBtn.disabled = true;
+    }
+
+    function updatePoseHint() {
+        const hint = document.getElementById('enroll-pose-hint');
+        if (capturedSamples.length < MAX_SAMPLES) {
+            hint.innerText = `POSE ${capturedSamples.length + 1}: ${POSE_GUIDE[capturedSamples.length]}`;
+            hint.style.borderLeftColor = 'var(--accent-blue)';
+            document.getElementById('btn-camera-capture').disabled = false;
+        } else {
+            hint.innerText = "All 20 samples captured! Review thumbnails below.";
+            hint.style.borderLeftColor = 'var(--accent-green)';
+            document.getElementById('btn-camera-capture').disabled = true;
+        }
+
+        const progress = (capturedSamples.length / MAX_SAMPLES) * 100;
+        document.getElementById('enroll-progress-bar').style.width = `${progress}%`;
+        document.getElementById('enroll-count-text').innerText = `${capturedSamples.length} / ${MAX_SAMPLES}`;
+    }
+
+    async function captureEnrollFrame() {
+        if (capturedSamples.length >= MAX_SAMPLES) return;
+
+        const video = document.getElementById('enroll-video');
+        if (!video || video.videoWidth === 0 || video.readyState < 2) {
+            alert("Camera not ready. Please wait a moment or click 'Start Camera'.");
+            return;
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0);
+
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.90));
+        const formData = new FormData();
+        // Explicitly provide a filename to ensure some server environments treat it as a file part
+        formData.append('photo', blob, 'enroll_frame.jpg');
+
+        const captureBtn = document.getElementById('btn-camera-capture');
+        const originalText = captureBtn.innerText;
+        captureBtn.innerText = "Validating...";
+        captureBtn.disabled = true;
+
+        try {
+            console.log(`Sending frame for validation: ${canvas.width}x${canvas.height}`);
+            const res = await fetch('/api/students/enroll/validate-frame', { method: 'POST', body: formData });
+            const data = await res.json();
+
+            if (data.success) {
+                console.log("Frame accepted:", data);
+                // Overlay face box briefly
+                const overlay = document.getElementById('enroll-canvas');
+                overlay.width = video.videoWidth;
+                overlay.height = video.videoHeight;
+                const octx = overlay.getContext('2d');
+                octx.clearRect(0, 0, overlay.width, overlay.height);
+                octx.strokeStyle = '#10b981';
+                octx.lineWidth = 4;
+                const { top, right, bottom, left } = data.face_location;
+                octx.strokeRect(left, top, right - left, bottom - top);
+                setTimeout(() => octx.clearRect(0, 0, overlay.width, overlay.height), 800);
+
+                capturedSamples.push(blob);
+                renderThumbnails();
+                updatePoseHint();
+            } else {
+                console.warn("Frame rejected:", data.error);
+                alert(`Frame Rejected: ${data.error}`);
+                captureBtn.disabled = false;
+            }
+        } catch (err) {
+            console.error("Enrollment validation error:", err);
+            alert("Error communicating with validation server.");
+            captureBtn.disabled = false;
+        } finally {
+            captureBtn.innerText = originalText;
+        }
+    }
+
+    function renderThumbnails() {
+        const container = document.getElementById('enroll-thumbnails');
+        container.innerHTML = '';
+        capturedSamples.forEach((blob, index) => {
+            const url = URL.createObjectURL(blob);
+            const div = document.createElement('div');
+            div.style = 'position:relative; aspect-ratio:1; border-radius:4px; overflow:hidden; border:1px solid rgba(255,255,255,0.1);';
+            div.innerHTML = `
+                <img src="${url}" style="width:100%; height:100%; object-fit:cover;" />
+                <button type="button" onclick="removeSample(${index})" style="position:absolute; top:2px; right:2px; background:rgba(220,38,38,0.8); color:#fff; border:none; border-radius:50%; width:16px; height:16px; font-size:10px; cursor:pointer; display:flex; align-items:center; justify-content:center;">&times;</button>
+            `;
+            container.appendChild(div);
+        });
+    }
+
+    function removeSample(index) {
+        capturedSamples.splice(index, 1);
+        renderThumbnails();
+        updatePoseHint();
+    }
+
+    function openAddStudentModal(studentData = null) {
+        document.getElementById('add-student-error').style.display = 'none';
+        document.getElementById('add-student-form').reset();
+        capturedSamples = [];
+        renderThumbnails();
+        setEnrollMode('upload');
+
+        if (studentData) {
+            document.getElementById('modal-dept').value = studentData.department_code;
+            document.getElementById('modal-student-id').value = studentData.student_id;
+            document.getElementById('modal-student-name').value = studentData.student_name;
+            document.getElementById('modal-student-ay').value = studentData.academic_year || '';
+            document.getElementById('modal-student-sem').value = studentData.semester || '';
+            document.getElementById('modal-student-yl').value = studentData.year_level || 'II';
+            document.getElementById('modal-student-sec').value = studentData.section || 'B';
+            document.getElementById('modal-student-status').value = studentData.status === 'Active' ? 'true' : 'false';
+            document.getElementById('modal-student-id').readOnly = true;
+        } else {
+            document.getElementById('modal-dept').value = activeDept !== 'ALL' ? activeDept : 'CSD';
+            document.getElementById('modal-student-id').readOnly = false;
+        }
+        document.getElementById('addStudentModal').classList.add('active');
+    }
+
+    function closeAddStudentModal() {
+        stopEnrollCamera();
+        document.getElementById('addStudentModal').classList.remove('active');
+    }
+
+    function handleAddStudent(e) {
+        e.preventDefault();
+        const errorDiv = document.getElementById('add-student-error');
+        const btn = document.getElementById('btn-save-student');
+        errorDiv.style.display = 'none';
+
+        if (enrollMode === 'camera' && capturedSamples.length < MAX_SAMPLES) {
+            errorDiv.innerText = `Exactly ${MAX_SAMPLES} samples required. You have ${capturedSamples.length}.`;
+            errorDiv.style.display = 'block';
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('department', document.getElementById('modal-dept').value);
+        formData.append('student_id', document.getElementById('modal-student-id').value.trim());
+        formData.append('student_name', document.getElementById('modal-student-name').value.trim());
+        formData.append('year_level', document.getElementById('modal-student-yl').value);
+        formData.append('section', document.getElementById('modal-student-sec').value.trim());
+        formData.append('academic_year', document.getElementById('modal-student-ay').value.trim());
+        formData.append('semester', document.getElementById('modal-student-sem').value.trim());
+        formData.append('is_active', document.getElementById('modal-student-status').value);
+
+        if (enrollMode === 'camera') {
+            capturedSamples.forEach((blob, i) => {
+                formData.append('photo', blob, `camera_sample_${i+1}.jpg`);
+            });
+        } else {
+            const files = document.getElementById('modal-photo').files;
+            for (let i = 0; i < files.length; i++) {
+                formData.append('photo', files[i]);
+            }
+        }
+
+        btn.disabled = true;
+        btn.innerText = "Processing Enrollment...";
+
+        fetch('/api/students/add', {
+            method: 'POST',
+            body: formData,
+        })
+        .then(res => res.json())
+        .then(data => {
+            btn.disabled = false;
+            btn.innerText = "Complete Enrollment";
+            if (data.success) {
+                closeAddStudentModal();
+                fetchStudentData();
+            } else {
+                errorDiv.innerText = data.error || "Failed to enroll student.";
+                errorDiv.style.display = 'block';
+            }
+        })
+        .catch(err => {
+            btn.disabled = false;
+            btn.innerText = "Complete Enrollment";
+            errorDiv.innerText = "Server error while enrolling student.";
+            errorDiv.style.display = 'block';
+        });
+    }
+
+    function openAddSemesterModal() {
+        document.getElementById('add-sem-error').style.display = 'none';
+        document.getElementById('add-sem-form').reset();
+        document.getElementById('addSemesterModal').classList.add('active');
+    }
+
+    function closeAddSemesterModal() {
+        document.getElementById('addSemesterModal').classList.remove('active');
+    }
+
+    function handleAddSemester(e) {
+        e.preventDefault();
+        const errorDiv = document.getElementById('add-sem-error');
+        const btn = document.getElementById('btn-save-sem');
+
+        const ay = document.getElementById('sem-ay-input').value.trim();
+        const yl = document.getElementById('sem-yl-input').value;
+        const sm = document.getElementById('sem-val-input').value;
+        const sd = document.getElementById('sem-sd-input').value;
+        const ed = document.getElementById('sem-ed-input').value;
+
+        btn.disabled = true;
+
+        fetch('/api/semesters', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                academic_year: ay,
+                year_level: yl,
+                semester: sm,
+                start_date: sd,
+                end_date: ed,
+                is_active: true
+            }),
+        })
+        .then(res => res.json())
+        .then(data => {
+            btn.disabled = false;
+            if (data.success) {
+                closeAddSemesterModal();
+                fetchSystemStatus();
+            } else {
+                errorDiv.innerText = data.error || "Failed to configure semester.";
+                errorDiv.style.display = 'block';
+            }
+        });
+    }
+
+    function openAddDeptModal() {
+        document.getElementById('add-dept-error').style.display = 'none';
+        document.getElementById('add-dept-form').reset();
+        document.getElementById('addDeptModal').classList.add('active');
+    }
+
+    function closeAddDeptModal() {
+        document.getElementById('addDeptModal').classList.remove('active');
+    }
+
+    function handleAddDept(e) {
+        e.preventDefault();
+        const errorDiv = document.getElementById('add-dept-error');
+        const btn = document.getElementById('btn-save-dept');
+
+        const code = document.getElementById('dept-code-input').value.trim();
+        const name = document.getElementById('dept-name-input').value.trim();
+        const cam = document.getElementById('dept-cam-input').value.trim();
+
+        btn.disabled = true;
+
+        fetch('/api/departments', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code: code, name: name, camera_source: cam }),
+        })
+        .then(res => res.json())
+        .then(data => {
+            btn.disabled = false;
+            if (data.success) {
+                closeAddDeptModal();
+                location.reload();
+            } else {
+                errorDiv.innerText = data.error || "Failed to create department.";
+                errorDiv.style.display = 'block';
+            }
+        });
+    }
+
+    function promptEditCamera(deptCode, currentSource) {
+        const newSrc = prompt(`Enter camera source for ${deptCode} (0 for webcam, RTSP URL, or file path):`, currentSource);
+        if (newSrc !== null) {
+            fetch(`/api/departments/${deptCode}/cameras`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ camera_source: newSrc }),
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) fetchSystemStatus();
+                else alert(data.error || "Failed to update camera.");
+            });
+        }
+    }
+
+    function deleteStudent(deptCode, studentId) {
+        if (!confirm(`Are you sure you want to delete student ID '${studentId}' from ${deptCode}?`)) return;
+
+        fetch('/api/students/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ department: deptCode, student_id: studentId }),
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) fetchStudentData();
+            else alert(data.error || "Failed to delete student.");
+        });
+    }
+
+    let currentReportPage = 1;
+    let totalReportPages = 1;
+
+    function handleReportModeChange(mode) {
+        const today = new Date();
+        const startInput = document.getElementById('rpt-start-date');
+        const endInput = document.getElementById('rpt-end-date');
+
+        const formatDate = (d) => {
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        };
+
+        if (mode === 'daily' || mode === 'today') {
+            startInput.value = formatDate(today);
+            endInput.value = formatDate(today);
+        } else if (mode === 'weekly') {
+            const day = today.getDay();
+            const diff = today.getDate() - day + (day === 0 ? -6 : 1);
+            const monday = new Date(today);
+            monday.setDate(diff);
+            const sunday = new Date(monday);
+            sunday.setDate(monday.getDate() + 6);
+            startInput.value = formatDate(monday);
+            endInput.value = formatDate(sunday);
+        } else if (mode === 'monthly') {
+            const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+            const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+            startInput.value = formatDate(firstDay);
+            endInput.value = formatDate(lastDay);
+        } else if (mode === 'yearly') {
+            const firstDay = new Date(today.getFullYear(), 0, 1);
+            const lastDay = new Date(today.getFullYear(), 11, 31);
+            startInput.value = formatDate(firstDay);
+            endInput.value = formatDate(lastDay);
+        }
+        fetchReportData(1);
+    }
+
+    function applyReportPreset(preset) {
+        const modeSelect = document.getElementById('rpt-mode-select');
+        if (preset === 'today') {
+            modeSelect.value = 'daily';
+            handleReportModeChange('daily');
+        } else if (preset === 'this_week') {
+            modeSelect.value = 'weekly';
+            handleReportModeChange('weekly');
+        } else if (preset === 'this_month') {
+            modeSelect.value = 'monthly';
+            handleReportModeChange('monthly');
+        } else if (preset === 'this_year') {
+            modeSelect.value = 'yearly';
+            handleReportModeChange('yearly');
+        }
+    }
+
+    function fetchReportData(page = 1) {
+        currentReportPage = page;
+        const mode = document.getElementById('rpt-mode-select').value;
+        const startDate = document.getElementById('rpt-start-date').value;
+        const endDate = document.getElementById('rpt-end-date').value;
+        const deptSelect = document.getElementById('rpt-dept-dropdown');
+        const dept = deptSelect ? deptSelect.value : activeDept;
+        const section = document.getElementById('rpt-section-dropdown').value;
+        const period = document.getElementById('rpt-period-dropdown').value;
+        const status = document.getElementById('rpt-status-dropdown').value;
+        const search = document.getElementById('rpt-search-input').value.trim();
+
+        const ay = document.getElementById('rpt-academic-dropdown').value;
+        const yl = document.getElementById('rpt-yearlevel-dropdown').value;
+        const sm = document.getElementById('rpt-semester-dropdown').value;
+        const fromT = document.getElementById('rpt-from-time').value;
+        const toT = document.getElementById('rpt-to-time').value;
+
+        // Fix mapping: "general" mode route is just /api/reports/attendance
+        let endpoint = (mode === 'general')
+            ? `/api/reports/attendance?`
+            : `/api/reports/attendance/${mode}?`;
+
+        endpoint += `start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}&date=${encodeURIComponent(startDate)}&dept=${encodeURIComponent(dept)}&section=${encodeURIComponent(section)}&hourly_period=${encodeURIComponent(period)}&status=${encodeURIComponent(status)}&search=${encodeURIComponent(search)}&page=${page}&per_page=50`;
+        endpoint += `&academic_year=${encodeURIComponent(ay)}&year_level=${encodeURIComponent(yl)}&semester=${encodeURIComponent(sm)}&from_time=${encodeURIComponent(fromT)}&to_time=${encodeURIComponent(toT)}`;
+
+        const tbody = document.getElementById('report-body');
+        tbody.innerHTML = '<tr><td colspan="10" class="empty-state">Fetching report data...</td></tr>';
+
+        fetch(endpoint)
+            .then(res => res.json())
+            .then(data => {
+                if (!data.success) {
+                    tbody.innerHTML = `<tr><td colspan="10" class="empty-state" style="color:var(--accent-red);">${data.error || 'Failed to load report.'}</td></tr>`;
+                    return;
+                }
+
+                const s = data.summary || {};
+                document.getElementById('rpt-card-students').innerText = s.total_students || 0;
+                document.getElementById('rpt-card-present-st').innerText = s.present_students || 0;
+                document.getElementById('rpt-card-absent-st').innerText = s.absent_students || 0;
+                document.getElementById('rpt-card-total-slots').innerText = s.total_periods || 0;
+                document.getElementById('rpt-card-present-slots').innerText = s.present_periods || 0;
+                document.getElementById('rpt-card-absent-slots').innerText = s.absent_periods || 0;
+                document.getElementById('rpt-card-pct').innerText = `${s.attendance_percentage || 0.0}%`;
+
+                const pag = data.pagination || { page: 1, total_pages: 1, total_records: 0 };
+                totalReportPages = pag.total_pages;
+                const startRec = pag.total_records > 0 ? (pag.page - 1) * pag.per_page + 1 : 0;
+                const endRec = Math.min(pag.page * pag.per_page, pag.total_records);
+                document.getElementById('rpt-page-info').innerText = pag.total_records > 0
+                    ? `Showing ${startRec} - ${endRec} of ${pag.total_records} records`
+                    : 'Showing 0 - 0 of 0 records';
+
+                document.getElementById('btn-rpt-prev').disabled = (pag.page <= 1);
+                document.getElementById('btn-rpt-next').disabled = (pag.page >= pag.total_pages);
+
+                if (!data.records || data.records.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="10" class="empty-state">No matching attendance report records found.</td></tr>';
+                    return;
+                }
+
+                let html = '';
+                data.records.forEach(r => {
+                    const statusBadge = r.status === 'PRESENT'
+                        ? '<span class="status-badge-present">PRESENT</span>'
+                        : '<span class="status-badge-amber" style="background:rgba(239,68,68,0.2); color:#ef4444; border:1px solid rgba(239,68,68,0.4);">ABSENT</span>';
+
+                    html += `
+                        <tr>
+                            <td>${r.attendance_date}</td>
+                            <td><span class="status-badge-active">P${r.period_number}</span></td>
+                            <td><code style="font-size:0.8rem;">${r.hourly_period}</code></td>
+                            <td style="max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${r.subject}">${r.subject}</td>
+                            <td>${r.class_type}</td>
+                            <td><strong>${r.student_id}</strong></td>
+                            <td>${r.student_name}</td>
+                            <td>${r.section}</td>
+                            <td>${statusBadge}</td>
+                            <td>${r.attendance_time}</td>
+                        </tr>
+                    `;
+                });
+                tbody.innerHTML = html;
+            })
+            .catch(err => {
+                tbody.innerHTML = '<tr><td colspan="10" class="empty-state" style="color:var(--accent-red);">Error loading report data.</td></tr>';
+            });
+    }
+
+    function navigateReportPage(delta) {
+        const targetPage = currentReportPage + delta;
+        if (targetPage >= 1 && targetPage <= totalReportPages) {
+            fetchReportData(targetPage);
+        }
+    }
+
+    function downloadReportExport(format) {
+        const mode = document.getElementById('rpt-mode-select').value;
+        const startDate = document.getElementById('rpt-start-date').value;
+        const endDate = document.getElementById('rpt-end-date').value;
+        const deptSelect = document.getElementById('rpt-dept-dropdown');
+        const dept = deptSelect ? deptSelect.value : activeDept;
+        const section = document.getElementById('rpt-section-dropdown').value;
+        const period = document.getElementById('rpt-period-dropdown').value;
+        const status = document.getElementById('rpt-status-dropdown').value;
+        const search = document.getElementById('rpt-search-input').value.trim();
+
+        const ay = document.getElementById('rpt-academic-dropdown').value;
+        const yl = document.getElementById('rpt-yearlevel-dropdown').value;
+        const sm = document.getElementById('rpt-semester-dropdown').value;
+        const fromT = document.getElementById('rpt-from-time').value;
+        const toT = document.getElementById('rpt-to-time').value;
+
+        const endpoint = `/api/reports/attendance/export/${format}?mode=${mode}&start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}&date=${encodeURIComponent(startDate)}&dept=${encodeURIComponent(dept)}&section=${encodeURIComponent(section)}&hourly_period=${encodeURIComponent(period)}&status=${encodeURIComponent(status)}&search=${encodeURIComponent(search)}&academic_year=${encodeURIComponent(ay)}&year_level=${encodeURIComponent(yl)}&semester=${encodeURIComponent(sm)}&from_time=${encodeURIComponent(fromT)}&to_time=${encodeURIComponent(toT)}`;
+        window.location.href = endpoint;
+    }
+
+    setInterval(fetchAttendanceData, 2000);
+    setInterval(fetchSystemStatus, 4000);
+    setInterval(updateTimetableUI, 30000); // 30 second refresh for timetable card
+    fetchAttendanceData();
+    fetchStudentData();
+    fetchHistoryData();
+    fetchSystemStatus();
+    updateTimetableUI();
+    fetchClassroomCameras();
+</script>
+</body>
+</html>

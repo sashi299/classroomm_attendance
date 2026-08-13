@@ -1656,13 +1656,19 @@
     function switchTab(tabName) {
         console.log("Switching tab to:", tabName);
         document.querySelectorAll('.nav-tab-btn').forEach(btn => btn.classList.remove('active'));
-        document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(content => {
+            content.classList.remove('active');
+            content.style.setProperty('display', 'none', 'important');
+        });
 
         const targetBtn = document.getElementById(`tab-btn-${tabName}`);
         const targetContent = document.getElementById(`tab-content-${tabName}`);
 
         if (targetBtn) targetBtn.classList.add('active');
-        if (targetContent) targetContent.classList.add('active');
+        if (targetContent) {
+            targetContent.classList.add('active');
+            targetContent.style.setProperty('display', 'flex', 'important');
+        }
 
         if (tabName === 'live') fetchAttendanceData();
         if (tabName === 'students') fetchStudentData();

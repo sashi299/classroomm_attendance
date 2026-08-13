@@ -63,20 +63,22 @@ class CameraStream:
 
     @staticmethod
     def _detect_source_type(source: str) -> str:
-        stripped = str(source).strip()
-        if stripped.isdigit():
+        stripped = str(source).strip().lower()
+        if stripped.isdigit() or stripped in ["0", "1", "webcam", "laptop", "laptop webcam"]:
             return "webcam"
-        elif stripped.lower().startswith("rtsp://"):
+        elif stripped.startswith("rtsp://"):
             return "rtsp"
         else:
             return "file"
 
     @staticmethod
     def _parse_source(source: str):
-        stripped = str(source).strip()
+        stripped = str(source).strip().lower()
         if stripped.isdigit():
             return int(stripped)
-        return stripped
+        if stripped in ["webcam", "laptop", "laptop webcam"]:
+            return 0
+        return str(source).strip()
 
     def connect(self) -> bool:
         self.release()
@@ -89,6 +91,11 @@ class CameraStream:
                 self._cap = cv2.VideoCapture(self._capture_arg, cv2.CAP_FFMPEG)
                 if self._cap is not None:
                     self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            elif self._source_type == "webcam":
+                # Try DirectShow first on Windows for instant webcam opening
+                self._cap = cv2.VideoCapture(self._capture_arg, cv2.CAP_DSHOW)
+                if self._cap is None or not self._cap.isOpened():
+                    self._cap = cv2.VideoCapture(self._capture_arg)
             else:
                 self._cap = cv2.VideoCapture(self._capture_arg)
         except Exception as e:

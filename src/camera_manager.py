@@ -127,36 +127,50 @@ class CameraManager:
 
         cache_key = (dept, sec, classroom, cam_name)
 
-        if cache_key not in self._cameras:
-            # Handle Laptop Webcam selection for demo
-            if cam_name in ["Laptop Webcam", "Webcam", "Laptop Camera", "0"]:
-                cfg = {"source": "0"}
+        if cache_key in self._cameras:
+            cam = self._cameras[cache_key]
+            if cam and cam._is_connected:
+                return cam
             else:
-                configs = self._get_camera_config(dept, sec)
-                cfg = None
-                if configs:
-                    if cam_name == "Default":
-                        cfg = configs[0]
-                    else:
-                        cfg = next((c for c in configs if c["name"] == cam_name), None)
-
-            if not cfg and not self.db:
-                # If no DB, try legacy index-based access in legacy_config
-                sources = self._legacy_config.get(dept, [])
+                logger.info("Retrying connection for cached camera %s-%s [%s]...", dept, sec, cam_name)
+                cam.connect()
+                if cam._is_connected:
+                    return cam
                 try:
-                    idx = int(cam_name) if cam_name.isdigit() else -1
-                    if 0 <= idx < len(sources):
-                        cfg = {"source": sources[idx]}
-                except Exception: pass
+                    cam.release()
+                except Exception:
+                    pass
+                del self._cameras[cache_key]
 
-            if not cfg:
-                return None
+        # Handle Laptop Webcam selection for demo
+        if cam_name in ["Laptop Webcam", "Webcam", "Laptop Camera", "0"]:
+            cfg = {"source": "0"}
+        else:
+            configs = self._get_camera_config(dept, sec)
+            cfg = None
+            if configs:
+                if cam_name == "Default":
+                    cfg = configs[0]
+                else:
+                    cfg = next((c for c in configs if c["name"] == cam_name), None)
 
-            source = cfg["source"]
-            logger.info("Creating camera for %s-%s [%s]: source=%s", dept, sec, cam_name, source)
-            cam = CameraStream(source=source)
-            cam.connect()
-            self._cameras[cache_key] = cam
+        if not cfg and not self.db:
+            # If no DB, try legacy index-based access in legacy_config
+            sources = self._legacy_config.get(dept, [])
+            try:
+                idx = int(cam_name) if cam_name.isdigit() else -1
+                if 0 <= idx < len(sources):
+                    cfg = {"source": sources[idx]}
+            except Exception: pass
+
+        if not cfg:
+            return None
+
+        source = cfg["source"]
+        logger.info("Creating camera for %s-%s [%s]: source=%s", dept, sec, cam_name, source)
+        cam = CameraStream(source=source)
+        cam.connect()
+        self._cameras[cache_key] = cam
 
         return self._cameras[cache_key]
 

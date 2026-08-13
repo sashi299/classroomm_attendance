@@ -221,12 +221,12 @@ def generate_mjpeg_frames(dept_code, section="B", cam_name="Default"):
             cv2.rectangle(blank, (20, 20), (620, 460), (35, 25, 20), -1)
             cv2.rectangle(blank, (20, 20), (620, 460), (70, 50, 40), 2)
             if "laptop" in str(cam_name).lower() or "webcam" in str(cam_name).lower():
-                cv2.putText(blank, f"💻 WEBCAM CONNECTING [{dept_code}-{section}]...", (60, 220),
+                cv2.putText(blank, f"WEBCAM CONNECTING [{dept_code}-{section}]...", (60, 220),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 215, 255), 2)
                 cv2.putText(blank, "Please check camera permissions", (60, 270),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
             else:
-                cv2.putText(blank, f"📹 CCTV CAMERA OFFLINE [{dept_code}-{section}]", (50, 200),
+                cv2.putText(blank, f"CCTV CAMERA OFFLINE [{dept_code}-{section}]", (50, 200),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 0, 255), 2)
                 cv2.putText(blank, "Matrix RTSP stream (192.168.1.126) unreachable", (50, 250),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 200, 200), 1)
@@ -417,6 +417,67 @@ def api_config_status():
         "config": summary,
         "summary": summary,
     })
+
+
+def _get_user_dept():
+    user = get_current_user()
+    if user and user.get("department_code"):
+        return user["department_code"]
+    return session.get("department_code", "CSD")
+
+
+@app.route("/api/faculty", methods=["GET", "POST", "DELETE"])
+@login_required
+def api_faculty():
+    initialize_components()
+    user_dept = _get_user_dept()
+    dept = request.args.get("department", user_dept)
+    if request.method == "GET":
+        facs = db_manager.get_faculty(department=dept) if db_manager else []
+        return jsonify({"faculty": facs, "count": len(facs)})
+    elif request.method == "POST":
+        data = request.get_json() or {}
+        ok, msg = db_manager.add_faculty(
+            data.get("faculty_id"), data.get("name"),
+            data.get("department", user_dept), data.get("phone"), data.get("email")
+        ) if db_manager else (False, "DB Error")
+        return jsonify({"success": ok, "message": msg})
+    elif request.method == "DELETE":
+        data = request.get_json() or {}
+        fid = data.get("id") or data.get("faculty_id")
+        ok, msg = db_manager.delete_faculty(fid) if db_manager else (False, "DB Error")
+        return jsonify({"success": ok, "message": msg})
+
+
+@app.route("/api/cameras/registry", methods=["GET"])
+@login_required
+def api_cameras_registry():
+    initialize_components()
+    user_dept = _get_user_dept()
+    dept = request.args.get("department", user_dept)
+    sec = request.args.get("section")
+    active = request.args.get("active_only") == "true"
+    cams = db_manager.get_cameras(department=dept, section=sec, active_only=active) if db_manager else []
+    return jsonify({"cameras": cams, "count": len(cams)})
+
+
+@app.route("/api/cameras/add", methods=["POST"])
+@login_required
+def api_cameras_add():
+    initialize_components()
+    data = request.get_json() or {}
+    ok, msg = db_manager.add_camera(data) if db_manager else (False, "DB Error")
+    return jsonify({"success": ok, "message": msg})
+
+
+@app.route("/api/cameras/delete", methods=["POST", "DELETE"])
+@login_required
+def api_cameras_delete():
+    initialize_components()
+    data = request.get_json() or {}
+    cid = data.get("id") or data.get("camera_id")
+    ok, msg = db_manager.delete_camera(cid) if db_manager else (False, "DB Error")
+    return jsonify({"success": ok, "message": msg})
 
 
 @app.route("/api/system/exam-mode/<action>", methods=["POST"])

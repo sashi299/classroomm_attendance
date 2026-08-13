@@ -143,16 +143,14 @@ class CameraManager:
                 del self._cameras[cache_key]
 
         # Handle Laptop Webcam selection for demo
-        if cam_name in ["Laptop Webcam", "Webcam", "Laptop Camera", "0"]:
+        cam_lower = str(cam_name).strip().lower()
+        if "webcam" in cam_lower or "laptop" in cam_lower or cam_lower in ["0", "integrated", "default"]:
             cfg = {"source": "0"}
         else:
             configs = self._get_camera_config(dept, sec)
             cfg = None
             if configs:
-                if cam_name == "Default":
-                    cfg = configs[0]
-                else:
-                    cfg = next((c for c in configs if c["name"] == cam_name), None)
+                cfg = next((c for c in configs if c["name"] == cam_name), configs[0])
 
         if not cfg and not self.db:
             # If no DB, try legacy index-based access in legacy_config
@@ -164,7 +162,8 @@ class CameraManager:
             except Exception: pass
 
         if not cfg:
-            return None
+            # Default fallback to camera source 0 (laptop webcam) to prevent black screens
+            cfg = {"source": "0"}
 
         source = cfg["source"]
         logger.info("Creating camera for %s-%s [%s]: source=%s", dept, sec, cam_name, source)

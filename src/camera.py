@@ -96,6 +96,12 @@ class CameraStream:
                 self._cap = cv2.VideoCapture(self._capture_arg, cv2.CAP_DSHOW)
                 if self._cap is None or not self._cap.isOpened():
                     self._cap = cv2.VideoCapture(self._capture_arg)
+                # Fallback to camera index 1 if 0 fails
+                if (self._cap is None or not self._cap.isOpened()) and isinstance(self._capture_arg, int) and self._capture_arg == 0:
+                    logger.info("Webcam index 0 unavailable, trying webcam index 1...")
+                    self._cap = cv2.VideoCapture(1, cv2.CAP_DSHOW)
+                    if self._cap is None or not self._cap.isOpened():
+                        self._cap = cv2.VideoCapture(1)
             else:
                 self._cap = cv2.VideoCapture(self._capture_arg)
         except Exception as e:

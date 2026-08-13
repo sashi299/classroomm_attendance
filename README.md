@@ -38,6 +38,19 @@ Configure the following in the **Variables** tab of your Railway service:
 | `SMTP_USERNAME`| Email user | `user@example.com` |
 | `SMTP_PASSWORD`| App password | `your-app-password` |
 | `CAMERA_CSD` | CCTV Source | `rtsp://user:pass@ip:554/stream` |
+| `STORAGE_BACKEND` | Storage type | `s3` (for cloud) or `local` |
+| `S3_BUCKET` | Cloud bucket name | `my-attendance-evidence` |
+| `S3_ENDPOINT` | Cloud endpoint | `https://<accountid>.r2.cloudflarestorage.com` |
+| `S3_ACCESS_KEY` | Cloud access key | `...` |
+| `S3_SECRET_KEY` | Cloud secret key | `...` |
+
+---
+
+## 📹 Architecture & CCTV Integration
+
+- **Cloud Server**: Runs the Flask dashboard, handles API requests, and stores metadata in MySQL.
+- **Biometric Evidence**: In production, `STORAGE_BACKEND=s3` is recommended to ensure student photos and recognition crops persist across container restarts.
+- **Campus CCTV**: If cameras are on a local network, a **local agent** (on-premise) can be deployed to run recognition and forward events to this cloud server's API.
 
 ---
 

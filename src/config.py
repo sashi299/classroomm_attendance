@@ -196,15 +196,15 @@ class Config:
 
         summary = {
             "secret_key_configured": cls.SECRET_KEY != cls.DEFAULT_SECRET_KEY,
-            "database_host": cls.MYSQL_HOST,
+            "database_host": cls.mask_secret(cls.MYSQL_HOST),
             "database_port": cls.MYSQL_PORT,
             "database_name": cls.MYSQL_DATABASE,
-            "database_user": cls.MYSQL_USER,
+            "database_user": cls.mask_secret(cls.MYSQL_USER),
             "database_password": cls.mask_secret(cls.MYSQL_PASSWORD),
             "camera_sources": cls.get_masked_camera_sources(db_manager=db_manager),
             "frame_skip": cls.FRAME_SKIP,
             "face_resize_factor": cls.FACE_RESIZE_FACTOR,
-            "students_base_dir": cls.STUDENTS_BASE_DIR,
+            "storage_backend": cls.STORAGE_BACKEND,
             "department_code": cls.DEPARTMENT_CODE,
             "is_valid": is_valid,
             "warnings_count": len(warnings),

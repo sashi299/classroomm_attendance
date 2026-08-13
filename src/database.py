@@ -246,7 +246,14 @@ class DatabaseManager:
     """
 
     DEFAULT_DEPARTMENTS = [
-        ("CSD", "CSD", True, "0", "hod.csd@example.com"),
+        ("CSD", "Computer Science & Design", True, "0", "hod.csd@example.com"),
+        ("CSM", "CSE (AI & ML)", True, "0", "hod.csm@example.com"),
+        ("CSE", "Computer Science & Engineering", True, "0", "hod.cse@example.com"),
+        ("CSC", "CSE (Cyber Security)", True, "0", "hod.csc@example.com"),
+        ("MECH", "Mechanical Engineering", True, "0", "hod.mech@example.com"),
+        ("CIVIL", "Civil Engineering", True, "0", "hod.civil@example.com"),
+        ("EEE", "Electrical & Electronics Engineering", True, "0", "hod.eee@example.com"),
+        ("ECE", "Electronics & Communication Engineering", True, "0", "hod.ece@example.com"),
     ]
 
     DEFAULT_HOURLY_PERIODS = [
@@ -358,14 +365,15 @@ class DatabaseManager:
                 self._migrate_attendance_table_unlocked(cursor)
                 self._migrate_notification_columns_unlocked(cursor)
 
-                # Ensure CSD is present and enabled; disable any other departments safely for CCTV trial
-                logger.info("Ensuring CSD as the only active department for CCTV trial...")
-                cursor.execute(
-                    "INSERT INTO departments (code, name, is_enabled, camera_source, hod_contact) "
-                    "VALUES ('CSD', 'CSD', TRUE, '0', 'hod.csd@example.com') "
-                    "ON DUPLICATE KEY UPDATE is_enabled = TRUE, name = 'CSD', hod_contact = 'hod.csd@example.com';"
-                )
-                cursor.execute("UPDATE departments SET is_enabled = FALSE WHERE code != 'CSD';")
+                # Ensure all 8 engineering departments are enabled in database
+                logger.info("Ensuring all 8 engineering departments (CSD, CSM, CSE, CSC, MECH, CIVIL, EEE, ECE) are enabled...")
+                for code, name, is_en, cam_src, hod_c in self.DEFAULT_DEPARTMENTS:
+                    cursor.execute(
+                        "INSERT INTO departments (code, name, is_enabled, camera_source, hod_contact) "
+                        "VALUES (%s, %s, %s, %s, %s) "
+                        "ON DUPLICATE KEY UPDATE is_enabled = TRUE, name = %s, hod_contact = %s;",
+                        (code, name, is_en, cam_src, hod_c, name, hod_c)
+                    )
                 self._connection.commit()
 
                 # Seed default hourly periods if table empty

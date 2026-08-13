@@ -81,8 +81,8 @@ class Config:
     DEPARTMENT_CODE = os.getenv("DEPARTMENT_CODE", "CSD")
     DASHBOARD_PORT = int(os.getenv("DASHBOARD_PORT", "5000"))
 
-    # Dynamic Department Helper Methods (CSD only for CCTV trial)
-    DEFAULT_DEPARTMENT_CODES = ["CSD"]
+    # Dynamic Department Helper Methods
+    DEFAULT_DEPARTMENT_CODES = ["CSD", "CSM", "CSE", "CSC", "MECH", "CIVIL", "EEE", "ECE"]
 
     @classmethod
     def _parse_camera_sources(cls, env_val: str) -> list:
@@ -120,12 +120,19 @@ class Config:
 
         return {
             "CSD": cls._parse_camera_sources(os.getenv("CAMERA_CSD", os.getenv("RTSP_URL", "0"))),
+            "CSM": cls._parse_camera_sources(os.getenv("CAMERA_CSM", "0")),
+            "CSE": cls._parse_camera_sources(os.getenv("CAMERA_CSE", "0")),
+            "CSC": cls._parse_camera_sources(os.getenv("CAMERA_CSC", "0")),
+            "MECH": cls._parse_camera_sources(os.getenv("CAMERA_MECH", "0")),
+            "CIVIL": cls._parse_camera_sources(os.getenv("CAMERA_CIVIL", "0")),
+            "EEE": cls._parse_camera_sources(os.getenv("CAMERA_EEE", "0")),
+            "ECE": cls._parse_camera_sources(os.getenv("CAMERA_ECE", "0")),
         }
 
     # Backward compatibility properties
     DEPARTMENT_CODES = DEFAULT_DEPARTMENT_CODES
     DEPARTMENT_CAMERAS = {
-        "CSD": ["0"],
+        code: ["0"] for code in DEFAULT_DEPARTMENT_CODES
     }
 
     # Performance Optimization Settings

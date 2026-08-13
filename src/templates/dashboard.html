@@ -1119,7 +1119,13 @@
         <!-- Faculty Management Section -->
         <section class="table-card">
             <div class="table-header-flex">
-                <h2>Faculty Management</h2>
+                <div style="display:flex; align-items:center; gap:12px;">
+                    <h2>Faculty Management</h2>
+                    <select id="sys-faculty-dept-select" class="form-control" style="width:160px; padding:4px 8px; font-size:0.8rem;" onchange="fetchFacultyList(this.value)">
+                        <option value="ALL">All Departments</option>
+                        {% for dept in departments %}<option value="{{ dept }}">{{ dept }}</option>{% endfor %}
+                    </select>
+                </div>
                 <button class="btn-primary" onclick="openAddFacultyModal()">+ Add Faculty</button>
             </div>
             <table class="attendance-table">
@@ -1142,7 +1148,13 @@
         <!-- Camera Management Section -->
         <section class="table-card">
             <div class="table-header-flex">
-                <h2>CCTV Camera Management</h2>
+                <div style="display:flex; align-items:center; gap:12px;">
+                    <h2>CCTV Camera Management</h2>
+                    <select id="sys-camera-dept-select" class="form-control" style="width:160px; padding:4px 8px; font-size:0.8rem;" onchange="fetchCameraList(this.value)">
+                        <option value="ALL">All Departments</option>
+                        {% for dept in departments %}<option value="{{ dept }}">{{ dept }}</option>{% endfor %}
+                    </select>
+                </div>
                 <button class="btn-primary" onclick="openAddCameraModal()">+ Configure Camera</button>
             </div>
             <table class="attendance-table">
@@ -1747,9 +1759,11 @@
         }
     }
 
-    function fetchCameraList() {
+    function fetchCameraList(deptFilter) {
         if (!isAdmin) return;
-        fetch('/api/cameras/registry')
+        const deptSelect = document.getElementById('sys-camera-dept-select');
+        const dept = deptFilter || (deptSelect ? deptSelect.value : 'ALL');
+        fetch(`/api/cameras/registry?department=${dept}`)
         .then(res => res.json())
         .then(data => {
             const tbody = document.getElementById('sys-camera-body');
@@ -1784,7 +1798,7 @@
         };
         btn.disabled = true;
 
-        fetch('/api/cameras/registry', {
+        fetch('/api/cameras/add', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
@@ -1804,7 +1818,11 @@
 
     function deleteCamera(id) {
         if(confirm('Are you sure you want to delete this camera configuration?')) {
-            fetch(`/api/cameras/registry/${id}`, { method: 'DELETE' })
+            fetch('/api/cameras/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: id })
+            })
             .then(res => res.json())
             .then(d => {
                 if(d.success) fetchCameraList();
@@ -1813,16 +1831,17 @@
         }
     }
 
-    function fetchFacultyList() {
-        const dept = isAdmin ? 'ALL' : activeDept;
+    function fetchFacultyList(deptFilter) {
+        const deptSelect = document.getElementById('sys-faculty-dept-select');
+        const dept = deptFilter || (deptSelect ? deptSelect.value : (isAdmin ? 'ALL' : activeDept));
         fetch(`/api/faculty?department=${dept}`)
         .then(res => res.json())
         .then(data => {
             const tbody = document.getElementById('sys-faculty-body');
             const select = document.getElementById('tt-fac');
-            if (data.faculty.length === 0) {
+            if (!data.faculty || data.faculty.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No faculty registered.</td></tr>';
-                select.innerHTML = '<option value="">No faculty available</option>';
+                if (select) select.innerHTML = '<option value="">No faculty available</option>';
             } else {
                 let html = '';
                 let opts = '<option value="">Select Faculty...</option>';
@@ -1832,7 +1851,7 @@
                     opts += `<option value="${f.faculty_id}">${f.name} (${f.department})</option>`;
                 });
                 tbody.innerHTML = html;
-                select.innerHTML = opts;
+                if (select) select.innerHTML = opts;
             }
         });
     }

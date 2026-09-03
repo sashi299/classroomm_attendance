@@ -41,5 +41,5 @@ EXPOSE 5000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:5000/health || exit 1
 
-# Production WSGI server using Gunicorn with multi-threading
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--threads", "4", "--timeout", "120", "--chdir", "src", "app:app"]
+# Production WSGI server using Gunicorn with multi-threading (supports dynamic $PORT on Render/Railway)
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-5000} --workers 2 --threads 4 --timeout 120 --chdir src app:app"]

@@ -37,7 +37,10 @@ from auth import (
     authenticate_user, login_user, logout_user,
     get_current_user, is_admin, login_required,
 )
-import face_recognition
+try:
+    import face_recognition
+except ImportError:
+    face_recognition = None
 from notifications import NotificationManager, EmailNotificationProvider
 from scheduler import BackgroundScheduler
 
@@ -437,28 +440,51 @@ def api_enroll_validate_frame():
 
     h, w = img.shape[:2]; rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-    # 1. Detection
-    raw_locs = face_recognition.face_locations(rgb_img, number_of_times_to_upsample=0)
-
-    # 2. Filtering
+    # 1. Detection & Filtering
     final_faces = []
-    sorted_locs = sorted(raw_locs, key=lambda x: (x[2]-x[0])*(x[1]-x[3]), reverse=True)
+    
+    if face_recognition is not None:
+        raw_locs = face_recognition.face_locations(rgb_img, number_of_times_to_upsample=0)
+        sorted_locs = sorted(raw_locs, key=lambda x: (x[2]-x[0])*(x[1]-x[3]), reverse=True)
 
-    for f in sorted_locs:
-        # Ignore small background faces (< 12% height)
-        if (f[2]-f[0]) < (h * 0.12): continue
+        for f in sorted_locs:
+            if (f[2]-f[0]) < (h * 0.12): continue
+            if not face_recognition.face_encodings(rgb_img, [f]): continue
 
-        # Deep verification
-        if not face_recognition.face_encodings(rgb_img, [f]): continue
-
-        is_dup = False
-        for existing in final_faces:
-            # Merge if they overlap significantly (>30%)
-            # This handles duplicate boxes on the same physical face.
-            if get_iou(f, existing) > 0.3:
-                is_dup = True; break
-        if not is_dup:
-            final_faces.append(f)
+            is_dup = False
+            for existing in final_faces:
+                if get_iou(f, existing) > 0.3:
+                    is_dup = True; break
+            if not is_dup:
+                final_faces.append(f)
+    else:
+        from face_engine import get_insightface_app
+        face_app = get_insightface_app()
+        if face_app:
+            faces = face_app.get(img)
+            for face in faces:
+                l, t, r, b = face.bbox.astype(int)
+                if (b - t) < (h * 0.12): continue
+                f = (t, r, b, l)
+                is_dup = False
+                for existing in final_faces:
+                    if get_iou(f, existing) > 0.3:
+                        is_dup = True; break
+                if not is_dup:
+                    final_faces.append(f)
+        else:
+            cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            faces = cascade.detectMultiScale(gray, 1.1, 4)
+            for (x, y, w, h_box) in faces:
+                if h_box < (h * 0.12): continue
+                f = (y, x+w, y+h_box, x)
+                is_dup = False
+                for existing in final_faces:
+                    if get_iou(f, existing) > 0.3:
+                        is_dup = True; break
+                if not is_dup:
+                    final_faces.append(f)
 
     if len(final_faces) == 0:
         return jsonify({"success": False, "error": "No face detected"}), 400

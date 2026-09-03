@@ -28,6 +28,9 @@ scratch/
 test_env_check/
 *.log
 test_output.txt
+test_stream.mjpeg
+cookies.txt
+login_response.html
 
 # IDE files
 .vscode/

@@ -364,16 +364,16 @@ class DatabaseManager:
                 # Run database migrations FIRST
                 self._migrate_attendance_table_unlocked(cursor)
                 self._migrate_notification_columns_unlocked(cursor)
+                self._migrate_students_table_unlocked(cursor)
 
-                # Ensure all 8 engineering departments are enabled in database
-                logger.info("Ensuring all 8 engineering departments (CSD, CSM, CSE, CSC, MECH, CIVIL, EEE, ECE) are enabled...")
-                for code, name, is_en, cam_src, hod_c in self.DEFAULT_DEPARTMENTS:
-                    cursor.execute(
-                        "INSERT INTO departments (code, name, is_enabled, camera_source, hod_contact) "
-                        "VALUES (%s, %s, %s, %s, %s) "
-                        "ON DUPLICATE KEY UPDATE is_enabled = TRUE, name = %s, hod_contact = %s;",
-                        (code, name, is_en, cam_src, hod_c, name, hod_c)
-                    )
+                # Ensure CSD is present and enabled; disable any other departments safely for trial
+                logger.info("Ensuring CSD as the only active department for trial...")
+                cursor.execute(
+                    "INSERT INTO departments (code, name, is_enabled, camera_source, hod_contact) "
+                    "VALUES ('CSD', 'CSD - Computer Science & Design', TRUE, '0', 'hod.csd@example.com') "
+                    "ON DUPLICATE KEY UPDATE is_enabled = TRUE, name = 'CSD - Computer Science & Design';"
+                )
+                cursor.execute("UPDATE departments SET is_enabled = FALSE WHERE code != 'CSD';")
                 self._connection.commit()
 
                 # Seed default hourly periods if table empty
@@ -558,6 +558,45 @@ class DatabaseManager:
 
         self.ensure_reporting_indexes()
 
+    def _migrate_students_table_unlocked(self, cursor):
+        """Ensure parent_phone and parent_name columns exist in students table."""
+        try:
+            cursor.execute("SHOW COLUMNS FROM students LIKE 'parent_phone';")
+            if not cursor.fetchone():
+                logger.info("Migrating schema: Adding 'parent_phone' column to students table...")
+                cursor.execute("ALTER TABLE students ADD COLUMN parent_phone VARCHAR(20) DEFAULT NULL AFTER semester;")
+
+            cursor.execute("SHOW COLUMNS FROM students LIKE 'parent_name';")
+            if not cursor.fetchone():
+                logger.info("Migrating schema: Adding 'parent_name' column to students table...")
+                cursor.execute("ALTER TABLE students ADD COLUMN parent_name VARCHAR(100) DEFAULT NULL AFTER parent_phone;")
+
+            self._connection.commit()
+        except Exception as e:
+            logger.warning("Students table migration notice: %s", e)
+
+    def get_student_parent_contact(self, student_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch student parent phone and details for notification dispatch."""
+        with self._lock:
+            if not self._ensure_connection_unlocked():
+                return None
+            cursor = None
+            try:
+                cursor = self._connection.cursor(dictionary=True)
+                cursor.execute(
+                    "SELECT student_id, name, department, section, parent_phone, parent_name "
+                    "FROM students WHERE student_id = %s LIMIT 1;",
+                    (student_id.strip().upper(),)
+                )
+                return cursor.fetchone()
+            except Exception as e:
+                logger.error("Error fetching parent contact for student %s: %s", student_id, e)
+                return None
+            finally:
+                if cursor:
+                    try: cursor.close()
+                    except Exception: pass
+
     def ensure_reporting_indexes(self):
         """Ensure all database performance indexes required for reporting exist."""
         with self._lock:
@@ -631,7 +670,7 @@ class DatabaseManager:
                 pass
 
         logger.warning("MySQL connection lost or uninitialized. Attempting to reconnect...")
-        return self._connect_internal()
+        return self._connect_unlocked()
 
     # ── Dynamic Department CRUD Methods ────────────────────────────
 
@@ -880,10 +919,8 @@ class DatabaseManager:
             except Exception:
                 continue
 
-        # Dynamic fallback: HH:00 - (HH+1):00
-        cur_hour = time_val.hour
-        next_hour = (cur_hour + 1) % 24
-        return f"{cur_hour:02d}:00-{next_hour:02d}:00"
+        # Outside configured timetable periods (before 09:15, lunch, or after 16:10)
+        return ""
 
     # ── Attendance Query & Insertion Methods ───────────────────────
 
@@ -1109,6 +1146,109 @@ class DatabaseManager:
                     except Exception:
                         pass
 
+    def get_student_attendance_summary(self, student_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch comprehensive attendance metrics and history for a specific student."""
+        s_id = (student_id or "").strip().upper()
+        if not s_id:
+            return None
+
+        with self._lock:
+            if not self._ensure_connection_unlocked():
+                return None
+
+            cursor = None
+            try:
+                cursor = self._connection.cursor(dictionary=True)
+                # 1. Fetch student info
+                cursor.execute(
+                    "SELECT student_id, name, department, year_level, section, semester, parent_phone, parent_name "
+                    "FROM students WHERE student_id = %s LIMIT 1;",
+                    (s_id,)
+                )
+                student_row = cursor.fetchone()
+
+                # 2. Fetch all attendance records for this student
+                cursor.execute(
+                    "SELECT id, attendance_date, attendance_time, hourly_period, period_number, "
+                    "subject, class_type, status, department, section "
+                    "FROM attendance WHERE student_id = %s ORDER BY attendance_date DESC, attendance_time DESC;",
+                    (s_id,)
+                )
+                records = cursor.fetchall() or []
+
+                total_classes = len(records)
+                present_count = sum(1 for r in records if (r.get("status") or "").upper() == "PRESENT")
+                absent_count = total_classes - present_count
+                overall_pct = round((present_count / total_classes * 100), 1) if total_classes > 0 else 0.0
+
+                # 3. Subject-wise breakdown
+                subjects_map = {}
+                for r in records:
+                    subj = (r.get("subject") or "General").strip()
+                    if subj not in subjects_map:
+                        subjects_map[subj] = {"subject": subj, "total": 0, "present": 0, "absent": 0, "pct": 0.0}
+                    subjects_map[subj]["total"] += 1
+                    if (r.get("status") or "").upper() == "PRESENT":
+                        subjects_map[subj]["present"] += 1
+                    else:
+                        subjects_map[subj]["absent"] += 1
+
+                for s in subjects_map.values():
+                    s["pct"] = round((s["present"] / s["total"] * 100), 1) if s["total"] > 0 else 0.0
+
+                # 4. Today's attendance
+                today_str = str(date.today())
+                today_records = [
+                    {
+                        "id": r["id"],
+                        "period_number": r.get("period_number") or 1,
+                        "hourly_period": r.get("hourly_period") or f"P{r.get('period_number', 1)}",
+                        "subject": r.get("subject") or "Class",
+                        "time": str(r.get("attendance_time") or ""),
+                        "status": (r.get("status") or "PRESENT").upper()
+                    }
+                    for r in records if str(r.get("attendance_date")) == today_str
+                ]
+
+                # Format recent records
+                formatted_recent = []
+                for r in records[:20]:
+                    formatted_recent.append({
+                        "id": r["id"],
+                        "date": str(r.get("attendance_date")),
+                        "time": str(r.get("attendance_time") or "")[:5],
+                        "period": r.get("hourly_period") or f"P{r.get('period_number', 1)}",
+                        "subject": r.get("subject") or "Theory",
+                        "status": (r.get("status") or "PRESENT").upper()
+                    })
+
+                s_name = student_row["name"] if student_row else (records[0]["student_name"] if records else s_id)
+                s_dept = student_row["department"] if student_row else (records[0]["department"] if records else "CSD")
+                s_sec = (student_row.get("section") if student_row else None) or "B"
+
+                return {
+                    "success": True,
+                    "student_id": s_id,
+                    "student_name": s_name,
+                    "department": s_dept,
+                    "section": s_sec,
+                    "total_classes": total_classes,
+                    "present_count": present_count,
+                    "absent_count": absent_count,
+                    "attendance_percentage": overall_pct,
+                    "is_defaulter": bool(overall_pct < 75.0 and total_classes > 0),
+                    "subjects": list(subjects_map.values()),
+                    "today": today_records,
+                    "recent_records": formatted_recent
+                }
+            except Exception as e:
+                logger.error("Error generating student attendance summary for %s: %s", s_id, e)
+                return None
+            finally:
+                if cursor:
+                    try: cursor.close()
+                    except Exception: pass
+
     def get_attendance_report_data(
         self,
         start_date: date,
@@ -1133,6 +1273,34 @@ class DatabaseManager:
         """
         if registered_students is None:
             registered_students = []
+
+        if isinstance(start_date, str):
+            try:
+                start_date = datetime.strptime(start_date.strip(), "%Y-%m-%d").date()
+            except Exception:
+                start_date = date.today()
+        elif not isinstance(start_date, date):
+            start_date = date.today()
+
+        if isinstance(end_date, str):
+            try:
+                end_date = datetime.strptime(end_date.strip(), "%Y-%m-%d").date()
+            except Exception:
+                end_date = start_date
+        elif not isinstance(end_date, date):
+            end_date = start_date
+
+        if start_date > end_date:
+            start_date, end_date = end_date, start_date
+
+        try:
+            page = max(1, int(page))
+        except Exception:
+            page = 1
+        try:
+            per_page = max(1, int(per_page))
+        except Exception:
+            per_page = 50
 
         # 1. Fetch timetable entries for the target context
         dept = (department or "CSD").strip().upper()
@@ -1293,6 +1461,8 @@ class DatabaseManager:
                         "hourly_period": f"{slot['start_time'][:5]}-{slot['end_time'][:5]}",
                         "subject": slot["subject"],
                         "class_type": slot["class_type"],
+                        "faculty_id": slot.get("faculty_id", ""),
+                        "faculty_name": slot.get("faculty_name", ""),
                         "student_id": st_id,
                         "student_name": st["student_name"],
                         "department": dept,
@@ -1668,9 +1838,13 @@ class DatabaseManager:
         last_start = _parse_time(last_entry["start_time"])
         last_end = _parse_time(last_entry["end_time"])
 
-        # Before first period starts
+        # Before first period starts (e.g. before 09:15)
         if current_time < first_start:
             return {**base, "status": "BEFORE_CLASS"}
+
+        # After last period ends (e.g. after 16:10 / 4:10 PM)
+        if current_time >= last_end:
+            return {**base, "status": "AFTER_CLASS"}
 
         # Lunch break: 13:00-13:40
         lunch_start = dt_time(13, 0, 0)
@@ -1678,24 +1852,8 @@ class DatabaseManager:
         if lunch_start <= current_time < lunch_end:
             return {**base, "status": "LUNCH"}
 
-        # Last period is open-ended ("P7 = 15:20 onward")
-        if current_time >= last_start:
-            return {
-                **base,
-                "status": "ACTIVE",
-                "day": day_code,
-                "period_number": last_entry["period_number"],
-                "start_time": last_entry["start_time"],
-                "end_time": last_entry["end_time"],
-                "subject": last_entry["subject"],
-                "class_type": last_entry["class_type"],
-                "faculty_id": last_entry.get("faculty_id", ""),
-                "faculty_name": last_entry.get("faculty_name", ""),
-                "faculty_contact": last_entry.get("faculty_contact", ""),
-            }
-
-        # Check each period (except last, already handled above)
-        for entry in entries[:-1]:
+        # Check each scheduled period
+        for entry in entries:
             start = _parse_time(entry["start_time"])
             end = _parse_time(entry["end_time"])
             if start <= current_time < end:
@@ -1713,10 +1871,7 @@ class DatabaseManager:
                     "faculty_contact": entry.get("faculty_contact", ""),
                 }
 
-        # Fallback — shouldn't normally be reached with contiguous periods
-        return {**base, "status": "NO_CLASS"}
-
-        # Fallback — shouldn't normally be reached with contiguous periods
+        # Fallback — break or no class
         return {**base, "status": "NO_CLASS"}
 
     def get_hod_contact(self, dept_code: str) -> str:
@@ -2197,25 +2352,6 @@ class DatabaseManager:
             except MySQLError: return False
             finally:
                 if cursor: cursor.close()
-        """Drop a table (used only for testing cleanup)."""
-        with self._lock:
-            if not self._ensure_connection_unlocked():
-                return
-
-            cursor = None
-            try:
-                cursor = self._connection.cursor()
-                cursor.execute(f"DROP TABLE IF EXISTS `{table_name}`;")
-                self._connection.commit()
-                logger.info("Table '%s' dropped.", table_name)
-            except MySQLError as e:
-                logger.error("Error dropping table: %s", e)
-            finally:
-                if cursor is not None:
-                    try:
-                        cursor.close()
-                    except Exception:
-                        pass
 
     def __enter__(self):
         self.connect()

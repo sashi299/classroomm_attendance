@@ -161,6 +161,22 @@ def generate_attendance_excel(report_data: Dict[str, Any]) -> bytes:
     return excel_stream.getvalue()
 
 
+def _clean_pdf_str(val: Any) -> str:
+    """Sanitize strings for fpdf2 standard latin-1 core fonts."""
+    if val is None:
+        return ""
+    s = str(val)
+    # Replace common typography characters with safe ASCII equivalents
+    replacements = {
+        "\u2013": "-", "\u2014": "-", "\u2018": "'", "\u2019": "'",
+        "\u201c": '"', "\u201d": '"', "\u2022": "*", "\u2026": "...",
+        "\xa0": " ",
+    }
+    for orig, rep in replacements.items():
+        s = s.replace(orig, rep)
+    return s.encode("latin-1", "replace").decode("latin-1")
+
+
 def generate_attendance_pdf(report_data: Dict[str, Any]) -> bytes:
     """Generate professional print-ready PDF using fpdf2."""
     from fpdf import FPDF
@@ -207,9 +223,9 @@ def generate_attendance_pdf(report_data: Dict[str, Any]) -> bytes:
 
     for label, val in summary_items:
         pdf.set_font('helvetica', 'B', 9)
-        pdf.cell(30, 6, f"{label}:", border=0)
+        pdf.cell(30, 6, _clean_pdf_str(f"{label}:"), border=0)
         pdf.set_font('helvetica', '', 9)
-        pdf.cell(col_w, 6, str(val), border=0)
+        pdf.cell(col_w, 6, _clean_pdf_str(val), border=0)
         if pdf.get_x() > 240: pdf.ln(6)
 
     pdf.ln(10)
@@ -225,36 +241,40 @@ def generate_attendance_pdf(report_data: Dict[str, Any]) -> bytes:
     ]
 
     for h, w in headers:
-        pdf.cell(w, 8, h, border=1, align='C', fill=True)
+        pdf.cell(w, 8, _clean_pdf_str(h), border=1, align='C', fill=True)
     pdf.ln(8)
 
     # ── Table Data ───────────────────────────────────────────────────────
     pdf.set_text_color(0, 0, 0)
     pdf.set_font('helvetica', '', 8)
 
-    for r in records:
-        status = (r.get("status") or "ABSENT").upper()
+    if not records:
+        pdf.cell(242, 10, "No attendance records found for this period/filter.", border=1, align='C')
+        pdf.ln(10)
+    else:
+        for r in records:
+            status = (r.get("status") or "ABSENT").upper()
 
-        # Color coding status
-        if status == "PRESENT":
-            pdf.set_text_color(22, 101, 52) # Dark Green
-        else:
-            pdf.set_text_color(153, 27, 27) # Dark Red
+            # Color coding status
+            if status == "PRESENT":
+                pdf.set_text_color(22, 101, 52) # Dark Green
+            else:
+                pdf.set_text_color(153, 27, 27) # Dark Red
 
-        pdf.cell(20, 7, r.get("attendance_date", ""), border=1, align='C')
-        pdf.cell(12, 7, f"P{r.get('period_number', '')}", border=1, align='C')
+            pdf.cell(20, 7, _clean_pdf_str(r.get("attendance_date", "")), border=1, align='C')
+            pdf.cell(12, 7, _clean_pdf_str(f"P{r.get('period_number', '')}"), border=1, align='C')
 
-        # Trim subject/faculty if too long
-        subj = str(r.get("subject", ""))[:25]
-        fac = str(r.get("faculty_name", ""))[:20]
+            # Trim subject/faculty if too long
+            subj = str(r.get("subject", ""))[:25]
+            fac = str(r.get("faculty_name", ""))[:20]
 
-        pdf.cell(45, 7, subj, border=1)
-        pdf.cell(35, 7, fac, border=1)
-        pdf.cell(25, 7, r.get("student_id", ""), border=1, align='C')
-        pdf.cell(50, 7, str(r.get("student_name", ""))[:28], border=1)
-        pdf.cell(10, 7, r.get("section", ""), border=1, align='C')
-        pdf.cell(20, 7, status, border=1, align='C')
-        pdf.cell(25, 7, r.get("attendance_time", ""), border=1, align='C')
-        pdf.ln(7)
+            pdf.cell(45, 7, _clean_pdf_str(subj), border=1)
+            pdf.cell(35, 7, _clean_pdf_str(fac), border=1)
+            pdf.cell(25, 7, _clean_pdf_str(r.get("student_id", "")), border=1, align='C')
+            pdf.cell(50, 7, _clean_pdf_str(str(r.get("student_name", ""))[:28]), border=1)
+            pdf.cell(10, 7, _clean_pdf_str(r.get("section", "")), border=1, align='C')
+            pdf.cell(20, 7, _clean_pdf_str(status), border=1, align='C')
+            pdf.cell(25, 7, _clean_pdf_str(r.get("attendance_time", "")), border=1, align='C')
+            pdf.ln(7)
 
-    return pdf.output()
+    return bytes(pdf.output())

@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Student Attendance Portal | Classroom CCTV System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        slate: { 850: '#151f32', 900: '#0f172a', 950: '#0b1120' },
+                        emerald: { 500: '#10b981', 600: '#059669' },
+                        amber: { 500: '#f59e0b', 600: '#d97706' },
+                        rose: { 500: '#f43f5e', 600: '#e11d48' }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .progress-ring-circle {
+            transition: stroke-dashoffset 0.8s ease-in-out;
+            transform: rotate(-90deg);
+            transform-origin: 50% 50%;
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased flex flex-col justify-between">
+
+    <!-- Top Header -->
+    <header class="bg-slate-900 border-b border-slate-800 sticky top-0 z-40 px-4 py-3 shadow-md">
+        <div class="max-w-xl mx-auto flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 rounded-xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
+                    <i class="fa-solid fa-graduation-cap text-lg"></i>
+                </div>
+                <div>
+                    <h1 class="text-base font-bold tracking-tight text-white leading-tight">Student Portal</h1>
+                    <p class="text-xs text-slate-400">Classroom CCTV Attendance</p>
+                </div>
+            </div>
+            <a href="/" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 flex items-center gap-1.5 transition">
+                <i class="fa-solid fa-lock text-[10px] text-amber-400"></i> Admin
+            </a>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-xl mx-auto w-full px-4 py-6 space-y-6 flex-grow">
+
+        <!-- Search Card -->
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg relative overflow-hidden">
+            <div class="absolute -right-6 -bottom-6 w-28 h-28 bg-blue-500/5 rounded-full blur-xl pointer-events-none"></div>
+            <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
+                Check My Attendance Status
+            </label>
+            <form id="searchForm" class="flex gap-2" onsubmit="event.preventDefault(); fetchStudentData();">
+                <div class="relative flex-grow">
+                    <i class="fa-solid fa-id-card absolute left-3.5 top-3.5 text-slate-500"></i>
+                    <input type="text" id="rollInput" placeholder="Enter Roll No (e.g. 25A51A4467)"
+                        class="w-full bg-slate-950 border border-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 uppercase tracking-wider outline-none transition"
+                        required>
+                </div>
+                <button type="submit" id="searchBtn"
+                    class="bg-blue-600 hover:bg-blue-500 active:scale-95 text-white font-medium px-5 py-2.5 rounded-xl text-sm transition flex items-center gap-2 shadow-lg shadow-blue-600/20">
+                    <span>Search</span>
+                    <i class="fa-solid fa-arrow-right text-xs"></i>
+                </button>
+            </form>
+            <div id="statusMsg" class="text-xs text-rose-400 mt-2 hidden"></div>
+        </div>
+
+        <!-- Loading State -->
+        <div id="loadingState" class="hidden py-12 text-center space-y-3">
+            <div class="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
+            <p class="text-sm text-slate-400">Fetching attendance records & CCTV evidence...</p>
+        </div>
+
+        <!-- Student Attendance Summary Container -->
+        <div id="studentDetails" class="space-y-6 hidden">
+
+            <!-- Student Profile Header -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex items-center justify-between shadow-lg">
+                <div>
+                    <span id="deptBadge" class="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30 uppercase tracking-wider">CSD-B</span>
+                    <h2 id="studentName" class="text-lg font-bold text-white mt-1">--</h2>
+                    <p id="studentRoll" class="text-xs font-mono text-slate-400 tracking-wider">--</p>
+                </div>
+                <div class="text-right">
+                    <p class="text-[11px] text-slate-400">Total Classes</p>
+                    <p id="totalClasses" class="text-xl font-black text-white">0</p>
+                </div>
+            </div>
+
+            <!-- Attendance Percentage Gauge & Shortage Alert -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 text-center shadow-lg relative overflow-hidden">
+                <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-4">Overall Attendance Eligibility</h3>
+
+                <!-- Circular Progress -->
+                <div class="relative inline-flex items-center justify-center">
+                    <svg class="w-36 h-36">
+                        <circle class="text-slate-800" stroke-width="10" stroke="currentColor" fill="transparent" r="58" cx="72" cy="72"/>
+                        <circle id="pctCircle" class="progress-ring-circle text-emerald-500" stroke-width="10" stroke-linecap="round" stroke="currentColor" fill="transparent" r="58" cx="72" cy="72" stroke-dasharray="364.42" stroke-dashoffset="364.42"/>
+                    </svg>
+                    <div class="absolute flex flex-col items-center">
+                        <span id="pctValue" class="text-3xl font-black text-white tracking-tight">0%</span>
+                        <span class="text-[10px] uppercase font-bold tracking-widest text-slate-400 mt-0.5">Semester</span>
+                    </div>
+                </div>
+
+                <!-- 75% Shortage Alert Banner -->
+                <div id="shortageAlert" class="mt-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs hidden flex items-center gap-3 text-left">
+                    <i class="fa-solid fa-triangle-exclamation text-rose-400 text-base flex-shrink-0"></i>
+                    <div>
+                        <span class="font-bold block">Attendance Shortage Alert (&lt; 75%)</span>
+                        <span id="shortageMsg">You must attend upcoming lectures to qualify for semester examinations.</span>
+                    </div>
+                </div>
+
+                <div id="safeAlert" class="mt-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs hidden flex items-center gap-3 text-left">
+                    <i class="fa-solid fa-circle-check text-emerald-400 text-base flex-shrink-0"></i>
+                    <div>
+                        <span class="font-bold block">Exam Eligible (&ge; 75%)</span>
+                        <span>Your attendance satisfies university examination requirements.</span>
+                    </div>
+                </div>
+
+                <!-- Present / Absent Counts -->
+                <div class="grid grid-cols-2 gap-3 mt-5">
+                    <div class="bg-slate-950 border border-slate-800 rounded-xl p-3">
+                        <span class="text-[11px] text-emerald-400 font-semibold uppercase flex items-center justify-center gap-1">
+                            <i class="fa-solid fa-check"></i> Present
+                        </span>
+                        <span id="presentCount" class="text-xl font-bold text-white block mt-0.5">0</span>
+                    </div>
+                    <div class="bg-slate-950 border border-slate-800 rounded-xl p-3">
+                        <span class="text-[11px] text-rose-400 font-semibold uppercase flex items-center justify-center gap-1">
+                            <i class="fa-solid fa-xmark"></i> Absent
+                        </span>
+                        <span id="absentCount" class="text-xl font-bold text-white block mt-0.5">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Today's Attendance -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg space-y-3">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">Today's Hourly Classes</h3>
+                    <span class="text-[10px] font-mono text-slate-500" id="todayDate">--</span>
+                </div>
+                <div id="todayList" class="space-y-2">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+
+            <!-- Subject Breakdown -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg space-y-3">
+                <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">Subject-Wise Attendance</h3>
+                <div id="subjectsList" class="space-y-3">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-slate-800 bg-slate-900/60 py-4 text-center text-xs text-slate-500">
+        Classroom CCTV Attendance System • Academic Year 2026–2027
+    </footer>
+
+    <!-- Evidence Modal -->
+    <div id="photoModal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4" onclick="closeModal()">
+        <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-sm w-full p-5 text-center shadow-2xl relative" onclick="event.stopPropagation()">
+            <button onclick="closeModal()" class="absolute right-3 top-3 text-slate-400 hover:text-white p-2">
+                <i class="fa-solid fa-xmark text-lg"></i>
+            </button>
+            <h4 class="text-sm font-bold text-white mb-1">CCTV Recognition Proof</h4>
+            <p class="text-xs text-slate-400 mb-4" id="modalPeriodInfo">Period Snapshot</p>
+            <div class="w-48 h-48 mx-auto rounded-xl bg-slate-950 border border-slate-700 overflow-hidden flex items-center justify-center mb-3">
+                <img id="modalImg" src="" alt="CCTV Proof" class="w-full h-full object-cover">
+            </div>
+            <span class="text-[11px] text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-full font-semibold border border-emerald-500/20 inline-block">
+                <i class="fa-solid fa-shield-check mr-1"></i> Biometrically Verified
+            </span>
+        </div>
+    </div>
+
+    <script>
+        async function fetchStudentData() {
+            const roll = document.getElementById('rollInput').value.trim().toUpperCase();
+            if (!roll) return;
+
+            document.getElementById('statusMsg').classList.add('hidden');
+            document.getElementById('loadingState').classList.remove('hidden');
+            document.getElementById('studentDetails').classList.add('hidden');
+
+            try {
+                const res = await fetch(`/api/student/${encodeURIComponent(roll)}/attendance-summary`);
+                const data = await res.json();
+
+                document.getElementById('loadingState').classList.add('hidden');
+
+                if (!res.ok || !data.success) {
+                    document.getElementById('statusMsg').textContent = data.error || 'Student record not found. Verify Roll Number.';
+                    document.getElementById('statusMsg').classList.remove('hidden');
+                    return;
+                }
+
+                // Render Profile
+                document.getElementById('studentDetails').classList.remove('hidden');
+                document.getElementById('studentName').textContent = data.student_name;
+                document.getElementById('studentRoll').textContent = data.student_id;
+                document.getElementById('deptBadge').textContent = `${data.department}-${data.section}`;
+                document.getElementById('totalClasses').textContent = data.total_classes;
+                document.getElementById('presentCount').textContent = data.present_count;
+                document.getElementById('absentCount').textContent = data.absent_count;
+
+                // Gauge calculation
+                const pct = data.attendance_percentage;
+                document.getElementById('pctValue').textContent = `${pct}%`;
+                
+                const circle = document.getElementById('pctCircle');
+                const circumference = 2 * Math.PI * 58; // ~364.42
+                const offset = circumference - (pct / 100) * circumference;
+                circle.style.strokeDashoffset = offset;
+
+                // Color code gauge
+                if (pct >= 75) {
+                    circle.className.baseVal = 'progress-ring-circle text-emerald-500';
+                    document.getElementById('safeAlert').classList.remove('hidden');
+                    document.getElementById('shortageAlert').classList.add('hidden');
+                } else {
+                    circle.className.baseVal = 'progress-ring-circle text-rose-500';
+                    document.getElementById('safeAlert').classList.add('hidden');
+                    document.getElementById('shortageAlert').classList.remove('hidden');
+                }
+
+                // Render Today's Attendance
+                const todayList = document.getElementById('todayList');
+                todayList.innerHTML = '';
+                document.getElementById('todayDate').textContent = new Date().toISOString().split('T')[0];
+
+                if (!data.today || data.today.length === 0) {
+                    todayList.innerHTML = '<div class="text-xs text-slate-500 py-3 text-center">No attendance logged yet for today.</div>';
+                } else {
+                    data.today.forEach(p => {
+                        const isPres = p.status === 'PRESENT';
+                        const badgeClass = isPres ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20';
+                        const icon = isPres ? 'fa-check' : 'fa-xmark';
+                        
+                        const item = document.createElement('div');
+                        item.className = 'flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-slate-800/80';
+                        item.innerHTML = `
+                            <div>
+                                <span class="text-xs font-bold text-white block">Period ${p.period_number} • ${p.subject}</span>
+                                <span class="text-[11px] text-slate-400">${p.hourly_period}</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="text-xs px-2.5 py-1 rounded-lg border font-semibold flex items-center gap-1 ${badgeClass}">
+                                    <i class="fa-solid ${icon}"></i> ${p.status}
+                                </span>
+                                ${isPres && p.id ? `
+                                <button onclick="viewEvidence(${p.id}, 'Period ${p.period_number} - ${p.subject}')" 
+                                    class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-blue-400 text-xs transition" title="View CCTV Proof">
+                                    <i class="fa-solid fa-camera"></i>
+                                </button>` : ''}
+                            </div>
+                        `;
+                        todayList.appendChild(item);
+                    });
+                }
+
+                // Render Subjects
+                const subjList = document.getElementById('subjectsList');
+                subjList.innerHTML = '';
+                if (!data.subjects || data.subjects.length === 0) {
+                    subjList.innerHTML = '<div class="text-xs text-slate-500 py-2 text-center">No subject records available.</div>';
+                } else {
+                    data.subjects.forEach(s => {
+                        const sPct = s.pct;
+                        const sBarColor = sPct >= 75 ? 'bg-emerald-500' : (sPct >= 65 ? 'bg-amber-500' : 'bg-rose-500');
+                        const sTextColor = sPct >= 75 ? 'text-emerald-400' : (sPct >= 65 ? 'text-amber-400' : 'text-rose-400');
+
+                        const div = document.createElement('div');
+                        div.className = 'space-y-1.5';
+                        div.innerHTML = `
+                            <div class="flex items-center justify-between text-xs">
+                                <span class="font-medium text-slate-300 truncate max-w-[220px]">${s.subject}</span>
+                                <span class="font-bold ${sTextColor}">${sPct}% <span class="text-[10px] text-slate-500 font-normal">(${s.present}/${s.total})</span></span>
+                            </div>
+                            <div class="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800">
+                                <div class="${sBarColor} h-2 rounded-full transition-all duration-500" style="width: ${sPct}%"></div>
+                            </div>
+                        `;
+                        subjList.appendChild(div);
+                    });
+                }
+
+            } catch (err) {
+                document.getElementById('loadingState').classList.add('hidden');
+                document.getElementById('statusMsg').textContent = 'Network error connecting to attendance server.';
+                document.getElementById('statusMsg').classList.remove('hidden');
+            }
+        }
+
+        function viewEvidence(attId, label) {
+            document.getElementById('modalPeriodInfo').textContent = label;
+            document.getElementById('modalImg').src = `/api/evidence/${attId}/photo`;
+            document.getElementById('photoModal').classList.remove('hidden');
+        }
+
+        function closeModal() {
+            document.getElementById('photoModal').classList.add('hidden');
+        }
+    </script>
+</body>
+</html>

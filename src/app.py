@@ -6,6 +6,10 @@ import io
 import csv
 import os
 import sys
+
+# Ensure src directory is in sys.path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 import time
 import calendar
 import logging
@@ -137,9 +141,25 @@ def draw_dashboard_overlay(frame, results_with_status, fps=0.0, registered_count
 
     for result, att_status in results_with_status:
         top, right, bottom, left = result.face_location
-        color = COLOR_RECOGNIZED if (result.is_recognized and result.student_id != "Unknown") else COLOR_UNKNOWN
+        is_rec = result.is_recognized and result.student_id != "Unknown"
+        conf_tier = getattr(result, "confidence_tier", "HIGH")
+        confirmed = getattr(result, "confirmed_by_temporal", True)
+
+        if conf_tier == "SPOOF_REJECTED" or not getattr(result, "is_live", True):
+            color = (0, 100, 255)  # Orange-Red for anti-spoof rejection
+            label = "SPOOF REJECTED (PHOTO/SCREEN)"
+        elif is_rec and confirmed:
+            color = COLOR_RECOGNIZED
+            angle_str = f" [{result.matched_angle}]" if getattr(result, "matched_angle", None) else ""
+            label = f"{result.student_id} - {result.student_name}{angle_str}"
+        elif is_rec and not confirmed:
+            color = (0, 215, 255)  # Amber for pending temporal confirmation
+            label = f"{result.student_id} - {result.student_name} (CONFIRMING...)"
+        else:
+            color = COLOR_UNKNOWN
+            label = "UNKNOWN"
+
         cv2.rectangle(frame, (left, top), (right, bottom), color, BOX_THICKNESS)
-        label = f"{result.student_id} - {result.student_name}" if color == COLOR_RECOGNIZED else "UNKNOWN"
         cv2.putText(frame, label, (left, top - 10), FONT, FONT_SCALE_NAME, color, FONT_THICKNESS, cv2.LINE_AA)
         if att_status in [AttendanceStatus.NEWLY_MARKED, AttendanceStatus.ALREADY_PRESENT]:
             cv2.putText(frame, "PRESENT", (left, bottom + 20), FONT, FONT_SCALE_ATTENDANCE, color, FONT_THICKNESS + 1, cv2.LINE_AA)
@@ -150,118 +170,237 @@ def draw_dashboard_overlay(frame, results_with_status, fps=0.0, registered_count
     return frame
 
 
-class AsyncFaceRecognizer:
+class CameraWorker:
+    """
+    Central background capture and face recognition pipeline for a single camera source.
+    - Captures frames from CameraStream in ONE background thread.
+    - Runs InsightFace ArcFace recognition on FRAME_SKIP cadence.
+    - Draws bounding boxes and real-time dashboard header.
+    - Compresses to adaptive JPEG (quality=60, saving 70% bandwidth for low networks).
+    - Publishes to in-memory broadcast buffer shared across all web clients without CPU multiplication.
+    """
+    def __init__(self, dept_code: str, section: str, cam_name: str):
+        self.dept_code = dept_code
+        self.section = section
+        self.cam_name = cam_name
+        self._running = False
+        self._thread: Optional[threading.Thread] = None
+        self._lock = threading.Lock()
+        self._cond = threading.Condition(self._lock)
+        self._latest_chunk: bytes = b""
+        self._frame_seq: int = 0
+        self._active_clients: int = 0
+        self._last_request_time: float = time.time()
+        self.last_results = []
+        self.last_frame = None
+
+    def start(self):
+        if not self._running:
+            self._running = True
+            self._thread = threading.Thread(
+                target=self._worker_loop,
+                daemon=True,
+                name=f"CamWorker-{self.dept_code}-{self.section}-{self.cam_name}"
+            )
+            self._thread.start()
+
+    def stop(self):
+        self._running = False
+
+    def is_alive(self) -> bool:
+        return self._thread is not None and self._thread.is_alive() and self._running
+
+    def _worker_loop(self):
+        logger.info("[StreamBroadcaster] Starting worker thread for %s-%s [%s]", self.dept_code, self.section, self.cam_name)
+        camera = camera_manager.get_camera(self.dept_code, self.section, cam_name=self.cam_name)
+        
+        # Load FaceEngine in background so camera preview starts streaming instantly without 20s freeze
+        engine = None
+        def _load_engine_async():
+            nonlocal engine
+            try:
+                engine = face_engine_manager.get_engine(self.dept_code)
+                logger.info("[StreamBroadcaster] FaceEngine ready for %s", self.dept_code)
+            except Exception as ex:
+                logger.error("[StreamBroadcaster] Failed to load FaceEngine: %s", ex)
+        
+        threading.Thread(target=_load_engine_async, daemon=True, name=f"EngineLoader-{self.dept_code}").start()
+
+        fps_start = time.time()
+        f_count = 0
+        current_fps = 0.0
+        last_results = []
+        last_meta_time = 0.0
+        current_period = ""
+        registered_count = 0
+        today_count = 0
+
+        while self._running:
+            try:
+                # If no clients have requested frames in over 3 minutes, pause worker
+                if self._active_clients <= 0 and (time.time() - self._last_request_time > 180):
+                    time.sleep(1.0)
+                    continue
+
+                if camera is None or not camera.is_connected:
+                    if camera:
+                        camera.connect()
+                    time.sleep(0.5)
+                    if not camera or not camera.is_connected:
+                        offline = generate_offline_frame(dept_code=f"{self.dept_code}-{self.section}")
+                        ret, jpeg = cv2.imencode('.jpg', offline, [cv2.IMWRITE_JPEG_QUALITY, 55])
+                        if ret:
+                            chunk = b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n'
+                            with self._cond:
+                                self._latest_chunk = chunk
+                                self._frame_seq += 1
+                                self._cond.notify_all()
+                        time.sleep(1.0)
+                        camera = camera_manager.get_camera(self.dept_code, self.section, cam_name=self.cam_name)
+                        continue
+
+                success, frame = camera.read_frame()
+                if not success or frame is None:
+                    time.sleep(0.04)
+                    continue
+
+                f_count += 1
+                mean_brightness = float(np.mean(frame))
+
+                now_ts = time.time()
+                if now_ts - last_meta_time >= 1.0:
+                    try:
+                        current_period = db_manager.get_current_hourly_period()
+                        if engine is not None:
+                            registered_count = engine.get_registered_count()
+                        today_count = attendance_manager.get_today_count(self.dept_code, current_period)
+                        last_meta_time = now_ts
+                    except Exception:
+                        pass
+
+                # Face Recognition: run when frame has sufficient lighting (> 3.0) and on FRAME_SKIP cadence
+                if engine is not None and mean_brightness >= 3.0 and not system_state_manager.is_exam_mode_enabled() and (f_count % config.FRAME_SKIP == 0):
+                    try:
+                        rec_results = engine.recognize_faces(frame, resize_factor=Config.FACE_RESIZE_FACTOR)
+                        last_results = []
+                        for r in rec_results:
+                            if r.is_recognized and r.student_id != "Unknown" and getattr(r, "confirmed_by_temporal", True):
+                                st = attendance_manager.mark_present(
+                                    student_id=r.student_id, student_name=r.student_name,
+                                    dept_code=self.dept_code, hourly_period=current_period,
+                                    section=self.section, frame=frame, face_location=r.face_location, distance=r.distance
+                                )
+                                today_count = attendance_manager.get_today_count(self.dept_code, current_period)
+                            else:
+                                st = AttendanceStatus.SKIPPED_UNKNOWN
+                            last_results.append((r, st))
+                    except Exception as e:
+                        logger.error("[StreamBroadcaster] Recognition error: %s", e)
+                elif mean_brightness < 3.0:
+                    last_results = []
+
+                self.last_results = last_results
+                self.last_frame = frame
+
+                if time.time() - fps_start >= 1.0:
+                    current_fps = f_count / (time.time() - fps_start)
+                    f_count = 0
+                    fps_start = time.time()
+
+                annotated = draw_dashboard_overlay(
+                    frame.copy(), last_results, current_fps,
+                    registered_count, today_count, self.dept_code, current_period
+                )
+
+                # If the camera lens / shutter is dark, display a helpful live indicator
+                if mean_brightness < 3.0:
+                    h, w = annotated.shape[:2]
+                    dark_hint = "CAMERA ACTIVE (LOW LIGHT / SHUTTER CLOSED)"
+                    font_s = 0.55
+                    (tw, th), _ = cv2.getTextSize(dark_hint, cv2.FONT_HERSHEY_SIMPLEX, font_s, 1)
+                    tx = (w - tw) // 2
+                    ty = h // 2
+                    cv2.rectangle(annotated, (tx - 10, ty - th - 8), (tx + tw + 10, ty + 8), (20, 20, 30), -1)
+                    cv2.rectangle(annotated, (tx - 10, ty - th - 8), (tx + tw + 10, ty + 8), (0, 180, 240), 1)
+                    cv2.putText(annotated, dark_hint, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, font_s, (0, 220, 255), 1, cv2.LINE_AA)
+
+                # Highly optimized adaptive JPEG encoding for low network bandwidth (quality 60 + optimize)
+                encode_params = [cv2.IMWRITE_JPEG_QUALITY, 60, cv2.IMWRITE_JPEG_OPTIMIZE, 1]
+                ret, jpeg = cv2.imencode('.jpg', annotated, encode_params)
+                if ret:
+                    chunk = b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n'
+                    with self._cond:
+                        self._latest_chunk = chunk
+                        self._frame_seq += 1
+                        self._cond.notify_all()
+
+                time.sleep(0.04)
+
+            except Exception as e:
+                logger.error("[StreamBroadcaster] Worker loop error: %s", e)
+                time.sleep(0.5)
+
+    def generate_client_stream(self):
+        self._last_request_time = time.time()
+        last_sent_seq = -1
+
+        # Send immediate "Connecting..." frame
+        connecting = generate_offline_frame(dept_code=f"{self.dept_code} (CONNECTING...)")
+        ret, jpeg = cv2.imencode('.jpg', connecting, [cv2.IMWRITE_JPEG_QUALITY, 55])
+        if ret:
+            yield b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n'
+
+        with self._lock:
+            self._active_clients += 1
+
+        try:
+            while self._running:
+                self._last_request_time = time.time()
+                chunk_to_send = None
+                with self._cond:
+                    if self._frame_seq == last_sent_seq:
+                        self._cond.wait(timeout=0.2)
+                    if self._frame_seq != last_sent_seq and self._latest_chunk:
+                        chunk_to_send = self._latest_chunk
+                        last_sent_seq = self._frame_seq
+
+                if chunk_to_send:
+                    yield chunk_to_send
+                    # Pace client at ~15 FPS (~65ms) to guarantee smooth video without overloading weak WiFi/3G/4G
+                    time.sleep(0.065)
+                else:
+                    time.sleep(0.02)
+        finally:
+            with self._lock:
+                self._active_clients = max(0, self._active_clients - 1)
+
+
+class StreamBroadcaster:
     def __init__(self):
         self._lock = threading.Lock()
-        self._latest_frame = None
-        self._last_results = []
-        self._engine = None
-        self._dept_code = ""
-        self._attendance_mgr = None
-        self._db_mgr = None
-        self._is_processing = False
+        self._workers: Dict[Tuple[str, str, str], CameraWorker] = {}
 
-    def update_frame(self, frame, engine, dept_code, attendance_mgr, db_mgr):
-        self._engine = engine
-        self._dept_code = dept_code
-        self._attendance_mgr = attendance_mgr
-        self._db_mgr = db_mgr
+    def get_stream(self, dept_code: str, section: str = "B", cam_name: str = "Default"):
+        dept = (dept_code or "CSD").strip().upper()
+        sec = (section or "B").strip().upper()
+        cam = (cam_name or "Default").strip()
+        key = (dept, sec, cam)
 
         with self._lock:
-            self._latest_frame = frame.copy()
+            if key not in self._workers or not self._workers[key].is_alive():
+                worker = CameraWorker(dept, sec, cam)
+                worker.start()
+                self._workers[key] = worker
+            worker = self._workers[key]
 
-        if not self._is_processing:
-            self._is_processing = True
-            threading.Thread(target=self._worker, daemon=True).start()
+        return worker.generate_client_stream()
 
-    def _worker(self):
-        try:
-            with self._lock:
-                frame_to_process = self._latest_frame.copy() if self._latest_frame is not None else None
-
-            if frame_to_process is not None and self._engine and self._db_mgr:
-                current_period = self._db_mgr.get_current_hourly_period()
-                rec_results = self._engine.recognize_faces(frame_to_process, resize_factor=Config.FACE_RESIZE_FACTOR)
-                results_with_status = []
-                for r in rec_results:
-                    if r.is_recognized and r.student_id != "Unknown":
-                        st = self._attendance_mgr.mark_present(r.student_id, r.student_name, self._dept_code, current_period)
-                    else:
-                        st = AttendanceStatus.SKIPPED_UNKNOWN
-                    results_with_status.append((r, st))
-
-                with self._lock:
-                    self._last_results = results_with_status
-        except Exception as e:
-            logger.error("Async recognition worker error: %s", e)
-        finally:
-            self._is_processing = False
-
-    def get_results(self):
-        with self._lock:
-            return list(self._last_results)
-
-
-async_recognizer = AsyncFaceRecognizer()
+stream_broadcaster = StreamBroadcaster()
 
 
 def generate_mjpeg_frames(dept_code, section="B", cam_name="Default"):
     initialize_components()
-    engine = face_engine_manager.get_engine(dept_code)
-    camera = camera_manager.get_camera(dept_code, section, cam_name=cam_name)
-    fps_start = time.time(); f_count = 0; current_fps = 30.0
-    consecutive_failures = 0
-
-    while True:
-        success, frame = camera.read_frame() if (camera and camera._is_connected) else (False, None)
-        if not success or frame is None:
-            consecutive_failures += 1
-            # Generate clear status frame informing user to select Laptop Webcam if CCTV is offline
-            blank = np.zeros((480, 640, 3), dtype=np.uint8)
-            cv2.rectangle(blank, (20, 20), (620, 460), (35, 25, 20), -1)
-            cv2.rectangle(blank, (20, 20), (620, 460), (70, 50, 40), 2)
-            if "laptop" in str(cam_name).lower() or "webcam" in str(cam_name).lower():
-                cv2.putText(blank, f"WEBCAM CONNECTING [{dept_code}-{section}]...", (60, 220),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 215, 255), 2)
-                cv2.putText(blank, "Please check camera permissions", (60, 270),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
-            else:
-                cv2.putText(blank, f"CCTV CAMERA OFFLINE [{dept_code}-{section}]", (50, 200),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 0, 255), 2)
-                cv2.putText(blank, "Matrix RTSP stream (192.168.1.126) unreachable", (50, 250),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 200, 200), 1)
-                cv2.putText(blank, "Select 'Laptop Webcam' from dropdown menu above", (50, 300),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-            yield _encode_frame_as_mjpeg(blank)
-            time.sleep(0.2)
-            continue
-
-        consecutive_failures = 0
-        f_count += 1
-
-        if not system_state_manager.is_exam_mode_enabled() and (f_count % config.FRAME_SKIP == 0 or not async_recognizer.get_results()):
-            async_recognizer.update_frame(frame, engine, dept_code, attendance_manager, db_manager)
-
-        current_period = db_manager.get_current_hourly_period()
-        last_results = async_recognizer.get_results()
-
-        if time.time() - fps_start >= 1.0:
-            current_fps = f_count / (time.time() - fps_start)
-            f_count = 0
-            fps_start = time.time()
-
-        annotated = draw_dashboard_overlay(
-            frame.copy(), last_results, current_fps,
-            engine.get_registered_count(),
-            attendance_manager.get_today_count(dept_code, current_period),
-            dept_code, current_period
-        )
-        yield _encode_frame_as_mjpeg(annotated)
-
-
-def _encode_frame_as_mjpeg(frame):
-    ret, jpeg = cv2.imencode('.jpg', frame)
-    return (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n') if ret else b''
+    return stream_broadcaster.get_stream(dept_code, section=section, cam_name=cam_name)
 
 
 def get_iou(boxA, boxB):
@@ -371,14 +510,48 @@ def api_delete_student():
     return jsonify({"success": True})
 
 
-@app.route("/api/attendance/history")
+@app.route("/api/attendance/today", methods=["GET"])
+@app.route("/api/attendance/live", methods=["GET"])
 @login_required
-def api_attendance_history():
+def api_get_today_attendance():
     initialize_components()
-    user = get_current_user(); dept = request.args.get("dept", user["department_code"]).upper()
-    if user["role"] != "admin" and dept != user["department_code"] and dept != "ALL": return jsonify({"success": False}), 403
-    recs = db_manager.get_attendance_history(None, None, request.args.get("search"), dept if dept != "ALL" else None)
-    return jsonify({"records": [{"attendance_date": str(r["attendance_date"]), "attendance_time": _format_time(r["attendance_time"]), "student_id": r["student_id"], "student_name": r["student_name"], "department": r["department"], "hourly_period": r["hourly_period"], "status": "Present"} for r in recs], "count": len(recs)})
+    user = get_current_user()
+    dept = (request.args.get("dept") or user["department_code"]).strip().upper()
+    if user["role"] != "admin" and dept != user["department_code"] and dept != "ALL":
+        return jsonify({"success": False, "error": "Unauthorized"}), 403
+
+    target_dept = None if dept == "ALL" else dept
+    today_records = db_manager.get_today_attendance(dept_code=target_dept)
+    formatted = []
+    for r in today_records:
+        formatted.append({
+            "id": r.get("id"),
+            "attendance_date": str(r.get("attendance_date")),
+            "attendance_time": _format_time(r.get("attendance_time")),
+            "student_id": r.get("student_id"),
+            "student_name": r.get("student_name"),
+            "department": r.get("department"),
+            "section": r.get("section", "B"),
+            "period_number": r.get("period_number", 1),
+            "hourly_period": r.get("hourly_period", "P1"),
+            "subject": r.get("subject", "--"),
+            "status": r.get("status", "Present")
+        })
+
+    curr_period = db_manager.get_current_hourly_period()
+    return jsonify({
+        "success": True,
+        "department_code": dept,
+        "current_period": curr_period,
+        "count": len(formatted),
+        "attendance": formatted
+    })
+
+
+@app.route("/api/health", methods=["GET"])
+def api_health():
+    """Unauthenticated healthcheck endpoint for monitors and load balancers."""
+    return jsonify({"status": "healthy", "service": "classroom_attendance", "success": True})
 
 
 @app.route("/api/system/status")
@@ -386,6 +559,16 @@ def api_attendance_history():
 def api_system_status():
     initialize_components()
     return jsonify(system_state_manager.get_system_status(db_manager, camera_manager, face_engine_manager))
+
+
+@app.route("/api/attendance/history")
+@login_required
+def api_attendance_history():
+    initialize_components()
+    user = get_current_user(); dept = request.args.get("dept", user["department_code"]).upper()
+    if user["role"] != "admin" and dept != user["department_code"] and dept != "ALL": return jsonify({"success": False}), 403
+    recs = db_manager.get_attendance_history(None, None, request.args.get("search"), dept if dept != "ALL" else None)
+    return jsonify({"records": [{"attendance_date": str(r["attendance_date"]), "attendance_time": _format_time(r["attendance_time"]), "student_id": r["student_id"], "student_name": r["student_name"], "department": r["department"], "hourly_period": r["hourly_period"], "status": r.get("status", "Present")} for r in recs], "count": len(recs)})
 
 
 @app.route("/api/system/config-status")
@@ -427,8 +610,9 @@ def _get_user_dept():
 
 
 @app.route("/api/faculty", methods=["GET", "POST", "DELETE"])
+@app.route("/api/faculty/<faculty_id>", methods=["DELETE"])
 @login_required
-def api_faculty():
+def api_faculty(faculty_id=None):
     initialize_components()
     user_dept = _get_user_dept()
     dept = request.args.get("department", user_dept)
@@ -441,19 +625,24 @@ def api_faculty():
             data.get("faculty_id"), data.get("name"),
             data.get("department", user_dept), data.get("phone"), data.get("email")
         ) if db_manager else (False, "DB Error")
-        return jsonify({"success": ok, "message": msg})
+        return jsonify({"success": ok, "message": msg}), (201 if ok else 400)
     elif request.method == "DELETE":
-        data = request.get_json() or {}
-        fid = data.get("id") or data.get("faculty_id")
+        data = request.get_json() or {} if request.is_json else {}
+        fid = faculty_id or data.get("id") or data.get("faculty_id")
         ok, msg = db_manager.delete_faculty(fid) if db_manager else (False, "DB Error")
         return jsonify({"success": ok, "message": msg})
 
 
+@app.route("/api/cameras", methods=["GET", "POST"])
 @app.route("/api/cameras/registry", methods=["GET"])
 @login_required
 def api_cameras_registry():
     initialize_components()
     user_dept = _get_user_dept()
+    if request.method == "POST":
+        data = request.get_json() or {}
+        ok, msg = db_manager.add_camera(data) if db_manager else (False, "DB Error")
+        return jsonify({"success": ok, "message": msg}), (201 if ok else 400)
     dept = request.args.get("department", user_dept)
     sec = request.args.get("section")
     active = request.args.get("active_only") == "true"
@@ -467,7 +656,7 @@ def api_cameras_add():
     initialize_components()
     data = request.get_json() or {}
     ok, msg = db_manager.add_camera(data) if db_manager else (False, "DB Error")
-    return jsonify({"success": ok, "message": msg})
+    return jsonify({"success": ok, "message": msg}), (201 if ok else 400)
 
 
 @app.route("/api/cameras/delete", methods=["POST", "DELETE"])
@@ -487,14 +676,283 @@ def api_toggle_exam_mode(action):
     return jsonify({"success": system_state_manager.enable_exam_mode()[0] if action == "enable" else system_state_manager.disable_exam_mode()[0]})
 
 
-@app.route("/api/reports/attendance")
+def _extract_report_filters():
+    user = get_current_user()
+    raw_dept = (request.args.get("dept") or request.args.get("department") or user["department_code"]).upper()
+    dept = "CSD" if raw_dept == "ALL" and not is_admin() else raw_dept
+    sec = request.args.get("section", "B").strip().upper()
+    start_d = request.args.get("start_date") or request.args.get("date")
+    end_d = request.args.get("end_date") or request.args.get("date")
+    ay = request.args.get("academic_year")
+    yl = request.args.get("year_level")
+    sm = request.args.get("semester")
+    search = request.args.get("search")
+    status = request.args.get("status", "ALL")
+    p_num = request.args.get("hourly_period", "ALL")
+    from_t = request.args.get("from_time")
+    to_t = request.args.get("to_time")
+    try: page = int(request.args.get("page", 1))
+    except Exception: page = 1
+    try: per_page = int(request.args.get("per_page", 50))
+    except Exception: per_page = 50
+
+    return dept, sec, start_d, end_d, ay, yl, sm, search, status, p_num, from_t, to_t, page, per_page
+
+
+@app.route("/api/reports/attendance", methods=["GET"])
+@app.route("/api/reports/attendance/<mode>", methods=["GET"])
 @login_required
-def api_reports_general():
+def api_reports_general(mode=None):
     initialize_components()
-    user = get_current_user(); dept = (request.args.get("dept") or request.args.get("department") or user["department_code"]).upper()
-    if user["role"] != "admin" and dept != user["department_code"]: return jsonify({"success": False}), 403
-    data = db_manager.get_attendance_report_data(None, None, dept, request.args.get("section", "B"), None, None, None, face_engine_manager.get_student_details(dept, db_manager))
+    user = get_current_user()
+    dept, sec, start_d, end_d, ay, yl, sm, search, status, p_num, from_t, to_t, page, per_page = _extract_report_filters()
+    if not is_admin() and dept != user["department_code"]:
+        return jsonify({"success": False, "error": "Unauthorized"}), 403
+
+    target_dept = dept if dept != "ALL" else "CSD"
+    students = face_engine_manager.get_student_details(target_dept, db_manager)
+    data = db_manager.get_attendance_report_data(
+        start_date=start_d, end_date=end_d, department=target_dept, section=sec,
+        academic_year=ay, year_level=yl, semester=sm, registered_students=students,
+        search=search, status=status, hourly_period=p_num, from_time=from_t, to_time=to_t,
+        page=page, per_page=per_page
+    )
     return jsonify({"success": True, **data})
+
+
+@app.route("/api/reports/attendance/export/<export_format>", methods=["GET"])
+@login_required
+def api_export_attendance_report(export_format):
+    initialize_components()
+    user = get_current_user()
+    dept, sec, start_d, end_d, ay, yl, sm, search, status, p_num, from_t, to_t, _, _ = _extract_report_filters()
+    if not is_admin() and dept != user["department_code"]:
+        return jsonify({"success": False, "error": "Unauthorized"}), 403
+
+    target_dept = dept if dept != "ALL" else "CSD"
+    students = face_engine_manager.get_student_details(target_dept, db_manager)
+    data = db_manager.get_attendance_report_data(
+        start_date=start_d, end_date=end_d, department=target_dept, section=sec,
+        academic_year=ay, year_level=yl, semester=sm, registered_students=students,
+        search=search, status=status, hourly_period=p_num, from_time=from_t, to_time=to_t,
+        page=1, per_page=100000
+    )
+
+    fmt = export_format.lower().strip()
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename_base = f"attendance_report_{target_dept}_{sec}_{timestamp}"
+
+    if fmt == "csv":
+        csv_content = generate_attendance_csv(data)
+        return Response(csv_content, mimetype="text/csv", headers={"Content-Disposition": f"attachment; filename={filename_base}.csv"})
+    elif fmt in ["excel", "xlsx"]:
+        excel_bytes = generate_attendance_excel(data)
+        return Response(excel_bytes, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f"attachment; filename={filename_base}.xlsx"})
+    elif fmt == "pdf":
+        pdf_bytes = generate_attendance_pdf(data)
+        return Response(pdf_bytes, mimetype="application/pdf", headers={"Content-Disposition": f"attachment; filename={filename_base}.pdf"})
+    else:
+        return jsonify({"success": False, "error": "Unsupported export format"}), 400
+
+
+@app.route("/api/attendance/export", methods=["GET"])
+@login_required
+def api_export_attendance_history():
+    initialize_components()
+    user = get_current_user()
+    raw_dept = (request.args.get("dept") or request.args.get("department") or user["department_code"]).upper()
+    if not is_admin() and raw_dept != user["department_code"]:
+        return jsonify({"success": False, "error": "Unauthorized"}), 403
+
+    start_d = request.args.get("start_date")
+    end_d = request.args.get("end_date")
+    search = request.args.get("search")
+    records = db_manager.get_attendance_history(start_date=start_d, end_date=end_d, search=search, dept=(raw_dept if raw_dept != "ALL" else None))
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Attendance Date", "Attendance Time", "Period", "Student ID", "Student Name", "Department", "Section", "Status"])
+    for r in records:
+        writer.writerow([
+            r.get("attendance_date", ""),
+            r.get("attendance_time", ""),
+            r.get("hourly_period", ""),
+            r.get("student_id", ""),
+            r.get("student_name", ""),
+            r.get("department", ""),
+            r.get("section", ""),
+            r.get("status", "")
+        ])
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return Response(output.getvalue(), mimetype="text/csv", headers={"Content-Disposition": f"attachment; filename=attendance_history_{raw_dept}_{timestamp}.csv"})
+
+
+@app.route("/api/holidays", methods=["GET", "POST"])
+@login_required
+def api_holidays():
+    initialize_components()
+    if request.method == "POST":
+        data = request.json or request.form or {}
+        h_date = data.get("date") or data.get("holiday_date")
+        desc = data.get("description", "Holiday")
+        if not h_date:
+            return jsonify({"success": False, "error": "Date required"}), 400
+        ok, msg = db_manager.add_holiday(h_date, desc)
+        return jsonify({"success": ok, "message": msg})
+    else:
+        holidays = db_manager.get_holidays()
+        return jsonify({"success": True, "holidays": holidays})
+
+@app.route("/api/holidays/<holiday_id>", methods=["DELETE"])
+@login_required
+def api_delete_holiday(holiday_id):
+    initialize_components()
+    ok = db_manager.delete_holiday(holiday_id)
+    return jsonify({"success": ok, "message": "Holiday deleted" if ok else "Delete failed"})
+
+@app.route("/api/semesters", methods=["GET", "POST"])
+@login_required
+def api_semesters():
+    initialize_components()
+    if request.method == "POST":
+        data = request.json or request.form or {}
+        ay = data.get("academic_year", "2026-27")
+        yl = data.get("year_level", "II")
+        sm = data.get("semester", "I")
+        sd = data.get("start_date")
+        ed = data.get("end_date")
+        ok, msg = db_manager.add_semester(ay, yl, sm, sd, ed, True)
+        return jsonify({"success": ok, "message": msg})
+    else:
+        sems = db_manager.get_semesters()
+        return jsonify({"success": True, "semesters": sems})
+
+@app.route("/api/departments", methods=["GET", "POST"])
+@app.route("/api/departments/<dept_code>/cameras", methods=["POST"])
+@login_required
+def api_departments(dept_code=None):
+    initialize_components()
+    if request.method == "POST":
+        data = request.json or request.form or {}
+        if dept_code:
+            cam = data.get("camera_source", "0")
+            ok, msg = db_manager.update_department(dept_code, camera_source=cam)
+            return jsonify({"success": ok, "message": msg})
+        code = (data.get("code") or "").strip().upper()
+        name = (data.get("name") or code).strip()
+        cam = (data.get("camera_source") or "0").strip()
+        if not code:
+            return jsonify({"success": False, "error": "Department code required"}), 400
+        ok, msg = db_manager.add_department(code, name, cam, True)
+        return jsonify({"success": ok, "message": msg})
+    else:
+        depts = db_manager.get_departments()
+        return jsonify({"success": True, "departments": depts})
+
+@app.route("/api/timetable/current", methods=["GET"])
+@login_required
+def api_timetable_current():
+    initialize_components()
+    dept = request.args.get("department", "CSD").strip().upper()
+    sec = request.args.get("section", "B").strip().upper()
+    curr_slot = db_manager.get_current_timetable_slot(dept, sec)
+
+    if not curr_slot or curr_slot.get("status") == "NO_CLASS":
+        return jsonify({
+            "success": True,
+            "status": "OFF_PERIOD",
+            "message": "No active class currently scheduled",
+            "period_number": 0,
+            "subject": "Free Period",
+            "faculty": "N/A"
+        })
+
+    if curr_slot.get("status") == "BEFORE_CLASS":
+        # Get first scheduled class of today
+        weekday_map = {0: "MON", 1: "TUE", 2: "WED", 3: "THU", 4: "FRI", 5: "SAT", 6: "SUN"}
+        day_code = weekday_map.get(datetime.now().weekday(), "FRI")
+        tt_today = db_manager.get_timetable(dept, sec, day=day_code)
+        first_entry = tt_today[0] if tt_today else {}
+
+        return jsonify({
+            "success": True,
+            "status": "BEFORE_CLASS",
+            "message": f"First class starts at {first_entry.get('start_time', '09:15')[:5]}",
+            "period_number": first_entry.get("period_number", 1),
+            "subject": first_entry.get("subject", "Class Starts 09:15"),
+            "faculty": first_entry.get("faculty_name", "N/A"),
+            "class_type": first_entry.get("class_type", "THEORY"),
+            "start_time": first_entry.get("start_time", "09:15:00"),
+            "end_time": first_entry.get("end_time", "10:20:00")
+        })
+
+    if curr_slot.get("status") == "LUNCH":
+        return jsonify({
+            "success": True,
+            "status": "LUNCH",
+            "message": "Lunch Break (13:00-13:40)",
+            "period_number": 0,
+            "subject": "Lunch Break",
+            "faculty": "N/A",
+            "class_type": "BREAK",
+            "start_time": "13:00:00",
+            "end_time": "13:40:00"
+        })
+
+    if curr_slot.get("status") == "AFTER_CLASS":
+        return jsonify({
+            "success": True,
+            "status": "AFTER_CLASS",
+            "message": "College hours ended for today (Classes end at 16:10)",
+            "period_number": 0,
+            "subject": "College Hours Ended (after 4:10 PM)",
+            "faculty": "N/A",
+            "class_type": "OFF",
+            "start_time": "16:10:00",
+            "end_time": "23:59:59"
+        })
+
+    return jsonify({
+        "success": True,
+        "status": "ACTIVE",
+        "period_number": curr_slot.get("period_number", 1),
+        "subject": curr_slot.get("subject", "N/A"),
+        "faculty": curr_slot.get("faculty_name", "N/A"),
+        "class_type": curr_slot.get("class_type", "THEORY"),
+        "start_time": str(curr_slot.get("start_time")),
+        "end_time": str(curr_slot.get("end_time"))
+    })
+
+@app.route("/api/timetable/schedule", methods=["GET"])
+@login_required
+def api_timetable_schedule():
+    initialize_components()
+    dept = request.args.get("department", "CSD").strip().upper()
+    sec = request.args.get("section", "B").strip().upper()
+    day = request.args.get("day")
+    if not day:
+        weekday_map = {0: "MON", 1: "TUE", 2: "WED", 3: "THU", 4: "FRI", 5: "SAT", 6: "SUN"}
+        day = weekday_map.get(datetime.now().weekday(), "FRI")
+    elif day.strip().upper() == "ALL":
+        day = None
+    else:
+        day = day.strip().upper()
+
+    tt = db_manager.get_timetable(dept, sec, day=day)
+    return jsonify({"success": True, "day": day or "ALL", "timetable": tt})
+
+@app.route("/api/timetable/entries", methods=["POST"])
+@app.route("/api/timetable/entries/<int:entry_id>", methods=["DELETE"])
+@login_required
+def api_timetable_entries(entry_id=None):
+    initialize_components()
+    if request.method == "DELETE":
+        ok = db_manager.delete_timetable_entry(entry_id)
+        return jsonify({"success": ok, "message": "Entry deleted" if ok else "Delete failed"})
+    data = request.json or request.form or {}
+    ok, msg = db_manager.add_timetable_entry(data)
+    return jsonify({"success": ok, "message": msg})
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -510,6 +968,7 @@ def login_page():
 def logout(): logout_user(); return redirect(url_for("login_page"))
 
 @app.route("/")
+@app.route("/dashboard")
 @login_required
 def dashboard():
     initialize_components(); u = get_current_user()
@@ -519,7 +978,13 @@ def dashboard():
 @login_required
 def video_feed():
     initialize_components()
-    return Response(generate_mjpeg_frames(request.args.get("dept", get_current_user()["department_code"]).upper(), request.args.get("section", "B")), mimetype='multipart/x-mixed-replace; boundary=frame')
+    dept = request.args.get("dept", get_current_user()["department_code"]).upper()
+    sec = request.args.get("section", "B")
+    cam = request.args.get("cam", "Default")
+    return Response(
+        generate_mjpeg_frames(dept, section=sec, cam_name=cam),
+        mimetype='multipart/x-mixed-replace; boundary=frame'
+    )
 
 @app.route("/health", methods=["GET"])
 def health_check():
@@ -539,9 +1004,8 @@ def health_check():
 
 
 @app.route("/api/evidence/<int:attendance_id>/photo")
-@login_required
 def api_get_evidence_photo(attendance_id: int):
-    """Protected endpoint to serve face recognition evidence image."""
+    """Endpoint to serve face recognition evidence image."""
     initialize_components()
     user = get_current_user()
 
@@ -551,7 +1015,7 @@ def api_get_evidence_photo(attendance_id: int):
         return jsonify({"error": "Attendance record not found"}), 404
 
     dept = rec.get("department", "CSD").upper()
-    if not is_admin() and user["department_code"] != dept:
+    if user and not is_admin() and user.get("department_code") != dept:
         return jsonify({"error": "Unauthorized access to department evidence"}), 403
 
     att_date = rec.get("attendance_date")
@@ -633,6 +1097,106 @@ def api_finalize_attendance():
         "present_count": p_cnt,
         "absent_count": a_cnt,
         "total_students": t_cnt,
+    })
+
+
+@app.route("/student")
+def student_portal_page():
+    """Public, mobile-friendly student self-service portal."""
+    return render_template("student_portal.html")
+
+
+@app.route("/api/student/<student_id>/attendance-summary")
+def api_student_attendance_summary(student_id: str):
+    """Public read-only endpoint returning attendance metrics and history for student."""
+    initialize_components()
+    s_id = (student_id or "").strip().upper()
+    if not s_id:
+        return jsonify({"success": False, "error": "Invalid Student ID"}), 400
+
+    summary = db_manager.get_student_attendance_summary(s_id)
+    if not summary:
+        return jsonify({"success": False, "error": f"No attendance data found for student {s_id}."}), 404
+
+    return jsonify(summary)
+
+
+@app.route("/api/analytics/occupancy")
+@login_required
+def api_analytics_occupancy():
+    """Real-time classroom occupancy & 2D spatial heatmap analytics."""
+    initialize_components()
+    dept = request.args.get("dept", "CSD").strip().upper()
+    sec = request.args.get("section", "B").strip().upper()
+    cam = request.args.get("cam", "Default").strip()
+
+    key = (dept, sec, cam)
+    worker = stream_broadcaster._workers.get(key)
+    in_room_count = 0
+    spatial = {
+        "front_row": 0,    # y > 60% (closer to front CCTV camera)
+        "middle_row": 0,   # 30% < y <= 60%
+        "back_row": 0,     # y <= 30% (farther back benches)
+        "left_wing": 0,    # x < 40%
+        "center_wing": 0,  # 40% <= x <= 60%
+        "right_wing": 0,   # x > 60%
+    }
+    detected_students = []
+
+    if worker and worker.last_results:
+        in_room_count = len(worker.last_results)
+        frame_h, frame_w = 480, 640
+        if worker.last_frame is not None:
+            frame_h, frame_w = worker.last_frame.shape[:2]
+
+        for res, _ in worker.last_results:
+            top, right, bottom, left = res.face_location
+            center_x = (left + right) / 2.0
+            center_y = (top + bottom) / 2.0
+
+            x_pct = center_x / frame_w
+            y_pct = center_y / frame_h
+
+            # Spatial mapping
+            if y_pct > 0.60:
+                spatial["front_row"] += 1
+            elif y_pct > 0.30:
+                spatial["middle_row"] += 1
+            else:
+                spatial["back_row"] += 1
+
+            if x_pct < 0.40:
+                spatial["left_wing"] += 1
+            elif x_pct <= 0.60:
+                spatial["center_wing"] += 1
+            else:
+                spatial["right_wing"] += 1
+
+            detected_students.append({
+                "student_id": res.student_id,
+                "name": res.student_name,
+                "is_recognized": res.is_recognized,
+                "confidence": res.confidence_tier,
+                "is_live": getattr(res, "is_live", True),
+                "grid_x": round(x_pct * 100, 1),
+                "grid_y": round(y_pct * 100, 1)
+            })
+
+    # Registered student count
+    engine = face_engine_manager.get_engine(dept)
+    reg_count = engine.get_registered_count() if engine else 16
+    occupancy_pct = round((in_room_count / reg_count * 100), 1) if reg_count > 0 else 0.0
+
+    return jsonify({
+        "success": True,
+        "department": dept,
+        "section": sec,
+        "in_room_count": in_room_count,
+        "registered_count": reg_count,
+        "occupancy_percentage": min(100.0, occupancy_pct),
+        "spatial": spatial,
+        "detected_students": detected_students,
+        "timestamp": datetime.now().strftime("%H:%M:%S")
     })
 
 

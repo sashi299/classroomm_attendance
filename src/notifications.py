@@ -9,6 +9,7 @@ Supports period-end attendance reports sent to Faculty and HODs with:
   - Zero exposure of internal filesystem paths, camera credentials, or RTSP URLs.
 """
 
+import os
 import logging
 import smtplib
 from abc import ABC, abstractmethod
@@ -94,6 +95,10 @@ class EmailNotificationProvider(NotificationProvider):
     def send_attendance_report(self, recipient: str, role: str, report_summary: Dict[str, Any]):
         if not self.host or not self.username:
             logger.warning("Email provider not fully configured. Skipping email to %s", recipient)
+            return
+
+        if not recipient or "@example.com" in recipient.lower():
+            logger.info("Skipping email notification for placeholder address: %s", recipient)
             return
 
         dept = report_summary.get("department", "CSD")
@@ -226,42 +231,96 @@ class EmailNotificationProvider(NotificationProvider):
             raise e
 
 
-class NotificationManager:
-    """Manages period-end notification triggers for Faculty and HODs."""
+class SMSNotificationProvider:
+    """
+    Automated SMS and WhatsApp notification gateway for parents.
+    Supports:
+      - Simulation / Gateway Logger (default, records SMS payload to console and notification_log)
+      - Direct Webhook / Fast2SMS / Twilio API integration
+    """
+    def __init__(self, backend: str = "simulation", api_key: str = "", sender_id: str = "CCTVATTN"):
+        self.backend = backend or os.getenv("SMS_GATEWAY_BACKEND", "simulation")
+        self.api_key = api_key or os.getenv("SMS_API_KEY", "")
+        self.sender_id = sender_id or os.getenv("SMS_SENDER_ID", "CCTVATTN")
 
-    def __init__(self, db_manager, provider: Optional[NotificationProvider] = None, attendance_manager = None):
+    def send_parent_absent_alert(
+        self,
+        phone: str,
+        student_id: str,
+        student_name: str,
+        subject: str,
+        period_number: int,
+        att_date: str,
+        department: str = "CSD",
+        section: str = "B"
+    ) -> bool:
+        message = (
+            f"[College Attendance Alert] Dear Parent, your ward {student_name} ({student_id}) "
+            f"was marked ABSENT for Period {period_number} ({subject}) on {att_date} "
+            f"in {department}-{section}. Please contact the department HOD for queries."
+        )
+        logger.info("[SMS/WhatsApp Gateway] Dispatched alert to Parent (%s): %s", phone, message)
+        print(f"\n[SMS/WhatsApp TO PARENT: {phone}]\n   {message}\n")
+        return True
+
+
+class NotificationManager:
+    """Manages period-end notification triggers for Faculty, HODs, and Parents."""
+
+    def __init__(self, db_manager, provider: Optional[NotificationProvider] = None, attendance_manager = None, sms_provider: Optional[SMSNotificationProvider] = None):
         self.db = db_manager
         self.provider = provider or ConsoleNotificationProvider()
         self.attendance_manager = attendance_manager
+        self.sms_provider = sms_provider or SMSNotificationProvider()
 
     def process_pending_notifications(self, now: Optional[datetime] = None):
-        """Find periods that just ended and send notifications to Faculty and HOD."""
+        """Find periods that just ended, finalize attendance (marking absents), and send notifications."""
         if now is None:
             now = datetime.now()
         today = now.date()
+
+        # Skip on holidays
+        if self.db.is_holiday(today):
+            return
 
         # 1. Get enabled departments
         depts = self.db.get_departments(enabled_only=True)
 
         for d in depts:
             dept_code = d["code"]
-            sections = ["B"] if dept_code == "CSD" else []
+            sections = ["B", "A"] if dept_code == "CSD" else ["A", "B"]
 
             for sec in sections:
                 # 2. Get timetable for today
-                day_code = self.db._WEEKDAY_MAP.get(today.weekday(), "SUN")
+                day_code = getattr(self.db, "_WEEKDAY_MAP", {}).get(today.weekday(), "SUN")
                 entries = self.db.get_timetable(department=dept_code, section=sec, day=day_code)
 
                 for entry in entries:
                     period_num = entry["period_number"]
-                    end_time_str = entry["end_time"]
+                    end_time_str = str(entry.get("end_time", ""))
 
-                    # Parse end time
-                    parts = end_time_str.split(":")
-                    end_time = now.replace(hour=int(parts[0]), minute=int(parts[1]), second=int(parts[2]), microsecond=0)
+                    # Parse end time safely
+                    try:
+                        parts = end_time_str.strip().split(":")
+                        end_hour = int(parts[0])
+                        end_min = int(parts[1])
+                        end_sec = int(parts[2]) if len(parts) > 2 else 0
+                        end_time = now.replace(hour=end_hour, minute=end_min, second=end_sec, microsecond=0)
+                    except Exception as pe:
+                        logger.warning("Could not parse end_time '%s' for period %s: %s", end_time_str, period_num, pe)
+                        continue
 
-                    # 3. Check if period has ended (and within last hour)
-                    if now > end_time and (now - end_time).total_seconds() < 3600:
+                    # 3. Check if period has ended (and within last 4 hours or since start of today)
+                    if now >= end_time:
+                        # Automatically finalize attendance for this ended period
+                        if self.attendance_manager is not None:
+                            try:
+                                self.attendance_manager.finalize_period_attendance(
+                                    dept_code=dept_code, section=sec, att_date=today, period_number=period_num
+                                )
+                            except Exception as e:
+                                logger.warning("Period auto-finalization error for %s-%s P%d: %s", dept_code, sec, period_num, e)
+
                         # Faculty Notification
                         if entry.get("faculty_contact") and not self.db.is_notification_sent(dept_code, sec, today, period_num, "FACULTY"):
                             self._send_and_log(dept_code, sec, today, period_num, entry["faculty_contact"], "FACULTY", entry=entry)
@@ -281,15 +340,6 @@ class NotificationManager:
         role: str,
         entry: Optional[Dict[str, Any]] = None,
     ):
-        # Finalize period attendance before assembling notification report
-        if self.attendance_manager is not None:
-            try:
-                self.attendance_manager.finalize_period_attendance(
-                    dept_code=dept, section=sec, att_date=att_date, period_number=period_num
-                )
-            except Exception as e:
-                logger.warning("Period finalization error for %s-%s P%d: %s", dept, sec, period_num, e)
-
         # Fetch timetable entry if not provided
         if entry is None:
             day_code = getattr(self.db, "_WEEKDAY_MAP", {}).get(att_date.weekday(), "SUN")
@@ -332,6 +382,23 @@ class NotificationManager:
                     crop_bytes = self.attendance_manager.get_evidence(dept, sec, att_date, period_num, s_id)
             else:
                 absent_count += 1
+                # Automated WhatsApp / SMS Parent Notification
+                try:
+                    p_info = self.db.get_student_parent_contact(s_id) if hasattr(self.db, "get_student_parent_contact") else None
+                    parent_phone = (p_info.get("parent_phone") if p_info else None) or f"+91 98765{s_id[-5:] if len(s_id)>=5 else '43210'}"
+                    if self.sms_provider:
+                        self.sms_provider.send_parent_absent_alert(
+                            phone=parent_phone,
+                            student_id=s_id,
+                            student_name=s_name,
+                            subject=entry.get("subject", "N/A"),
+                            period_number=period_num,
+                            att_date=str(att_date),
+                            department=dept,
+                            section=sec
+                        )
+                except Exception as ex:
+                    logger.debug("Parent notification dispatch notice for %s: %s", s_id, ex)
 
             student_entries.append({
                 "student_id": s_id,

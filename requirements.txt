@@ -1,29 +1,28 @@
-# Core dependencies
-opencv-python==5.0.0.93
-numpy==2.4.6
-mysql-connector-python==26.7.0
-python-dotenv==1.2.2
-pillow==12.3.0
+# Web Application & WSGI
 flask==3.1.3
-
-# Face recognition (use dlib-bin for prebuilt Windows wheel)
-dlib-bin==20.0.1
-face-recognition==1.3.0
-face-recognition-models==0.3.0
-
-# Cloud Storage
-boto3==1.34.0
-
-# Required by face-recognition
-click==8.4.2
-colorama==0.4.6
-
-# Required for face_recognition_models (pkg_resources)
-setuptools<78
-
-# PDF Generation
-fpdf2==2.8.2
-
-# Production WSGI Server
 gunicorn==21.2.0
+python-dotenv==1.2.2
+werkzeug==3.1.8
 
+# Database & Cloud Storage
+mysql-connector-python==26.7.0
+boto3==1.43.70
+requests==2.34.2
+
+# Computer Vision & Deep Learning (ArcFace & SCRFD)
+numpy>=1.24.0,<2.5.0
+opencv-python-headless>=4.8.0
+insightface==1.0.1
+onnxruntime>=1.16.0
+pillow>=10.0.0
+pillow_heif>=0.15.0
+
+# Reports & Document Export
+fpdf2>=2.8.0
+openpyxl>=3.1.0
+xlsxwriter>=3.2.0
+python-pptx>=1.0.0
+
+# Legacy Face Recognition fallback
+face-recognition-models>=0.3.0
+setuptools<78

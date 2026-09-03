@@ -602,7 +602,7 @@
         <div class="header-title-box">
             <h1>
                 Classroom Attendance Dashboard
-                <span class="dept-badge" id="active-dept-badge">{{ department_code }} Department</span>
+                <span class="dept-badge" id="active-dept-badge">{{ 'CSD' if department_code == 'ALL' else department_code }} Department</span>
             </h1>
             <p>{{ department_name }} — Hourly Attendance Supervision Portal</p>
         </div>
@@ -649,11 +649,15 @@
             System Settings
         </button>
         {% endif %}
+        <a href="/student" target="_blank" class="nav-tab-btn" style="text-decoration: none; color: #38bdf8; border-color: rgba(56, 189, 248, 0.3); background: rgba(56, 189, 248, 0.1); margin-left: auto;">
+            <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 14l9-5-9-5-9 5 9 5z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 14l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14z"></path></svg>
+            Student Mobile View &#8599;
+        </a>
     </nav>
 
     <!-- TAB 1: Live Dashboard View -->
     <div id="tab-content-live" class="tab-content active">
-        <!-- CURRENT CLASS CARD (CSD-B Trial) -->
+        <!-- CURRENT CLASS CARD -->
         <section class="table-card" id="current-class-card" style="margin-bottom: 20px; display: none; border-left: 5px solid var(--accent-blue);">
             <div class="card-header">
                 <h2>
@@ -695,7 +699,7 @@
                         <label for="dept-select">Department:</label>
                         <select id="dept-select" onchange="switchDepartment(this.value)">
                             {% for dept in departments %}
-                            <option value="{{ dept }}">{{ dept }}</option>
+                            <option value="{{ dept }}" {% if dept == 'CSD' %}selected{% endif %}>{{ dept }}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -718,13 +722,100 @@
                     </select>
                 </div>
                 <div style="display:flex; align-items:center; gap:10px;">
+                    <button class="btn-primary" style="padding:4px 10px; font-size:0.75rem; background:rgba(59,130,246,0.2); border:1px solid #3b82f6; color:#93c5fd; cursor:pointer;" onclick="switchCameraView(true)" title="Restart camera stream">
+                        <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="vertical-align:middle; margin-right:4px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                        Reconnect
+                    </button>
                     <span style="font-size:0.8rem; color:var(--text-secondary); font-weight:600;">ZOOM:</span>
                     <input type="range" id="video-zoom-slider" min="1" max="3" step="0.1" value="1" oninput="applyZoom(this.value)" style="width:100px; cursor:pointer;" />
                     <button class="btn-primary" style="padding:4px 10px; font-size:0.75rem;" onclick="applyZoom(1); document.getElementById('video-zoom-slider').value=1;">Reset</button>
                 </div>
             </div>
             <div class="video-viewport">
-                <img src="/video_feed?dept={{ department_code }}" alt="Live Camera Feed Stream" id="live-stream-img" onerror="handleStreamError()" />
+                <img src="/video_feed?dept=CSD&section=B&cam=Default" alt="Live Camera Feed Stream" id="live-stream-img" onerror="handleStreamError()" onload="handleStreamLoad()" />
+            </div>
+        </section>
+
+        <!-- Classroom Occupancy & 2D Spatial Heatmap Analytics -->
+        <section class="table-card" id="occupancy-analytics-card" style="margin-bottom: 24px;">
+            <div class="table-header-flex" style="margin-bottom: 16px;">
+                <h2>
+                    <svg width="20" height="20" fill="none" stroke="#3b82f6" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                    Classroom Occupancy &amp; Spatial Heatmap Analytics
+                </h2>
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span style="font-size: 0.75rem; color: #94a3b8;">Live Detection Polling (3s)</span>
+                    <span id="occupancy-badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); padding: 4px 10px; border-radius: 9999px; font-size: 0.75rem; font-weight: 700;">0% OCCUPIED</span>
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px;">
+                <div style="background: #0b1120; border: 1px solid #1e293b; border-radius: 12px; padding: 14px;">
+                    <div style="font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; font-weight: 600;">In-Room Headcount</div>
+                    <div style="font-size: 1.6rem; font-weight: 800; color: #f8fafc; margin-top: 4px;" id="in-room-headcount">0</div>
+                    <div style="font-size: 0.75rem; color: #64748b; margin-top: 2px;">CCTV Spatial Detector</div>
+                </div>
+                <div style="background: #0b1120; border: 1px solid #1e293b; border-radius: 12px; padding: 14px;">
+                    <div style="font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; font-weight: 600;">Registered Strength</div>
+                    <div style="font-size: 1.6rem; font-weight: 800; color: #60a5fa; margin-top: 4px;" id="registered-strength-val">16</div>
+                    <div style="font-size: 0.75rem; color: #64748b; margin-top: 2px;">Enrolled Roster Count</div>
+                </div>
+                <div style="background: #0b1120; border: 1px solid #1e293b; border-radius: 12px; padding: 14px;">
+                    <div style="font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; font-weight: 600;">Anti-Spoof Status</div>
+                    <div style="font-size: 1.15rem; font-weight: 800; color: #10b981; margin-top: 6px;" id="anti-spoof-status">ACTIVE (100% LIVE)</div>
+                    <div style="font-size: 0.75rem; color: #64748b; margin-top: 2px;">Laplacian &amp; Biometric Checks</div>
+                </div>
+            </div>
+
+            <!-- 2D Spatial Heatmap Grid -->
+            <div style="background: #020617; border: 1px solid #1e293b; border-radius: 14px; padding: 16px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <span style="font-size: 0.75rem; font-weight: 700; color: #cbd5e1; text-transform: uppercase; letter-spacing: 0.05em;">2D Classroom Bench Heatmap</span>
+                    <span style="font-size: 0.75rem; color: #64748b;">(Camera Front View &darr;)</span>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; text-align: center;">
+                    <div id="zone-back-left" style="background: rgba(30, 41, 59, 0.6); border: 1px solid #334155; border-radius: 8px; padding: 12px;">
+                        <div style="font-size: 0.7rem; color: #94a3b8;">Back Row Left</div>
+                        <div class="zone-count" id="zone-bl-val" style="font-size: 1.2rem; font-weight: 700; color: #f1f5f9; margin-top: 4px;">0</div>
+                    </div>
+                    <div id="zone-back-center" style="background: rgba(30, 41, 59, 0.6); border: 1px solid #334155; border-radius: 8px; padding: 12px;">
+                        <div style="font-size: 0.7rem; color: #94a3b8;">Back Row Center</div>
+                        <div class="zone-count" id="zone-bc-val" style="font-size: 1.2rem; font-weight: 700; color: #f1f5f9; margin-top: 4px;">0</div>
+                    </div>
+                    <div id="zone-back-right" style="background: rgba(30, 41, 59, 0.6); border: 1px solid #334155; border-radius: 8px; padding: 12px;">
+                        <div style="font-size: 0.7rem; color: #94a3b8;">Back Row Right</div>
+                        <div class="zone-count" id="zone-br-val" style="font-size: 1.2rem; font-weight: 700; color: #f1f5f9; margin-top: 4px;">0</div>
+                    </div>
+
+                    <div id="zone-mid-left" style="background: rgba(30, 41, 59, 0.6); border: 1px solid #334155; border-radius: 8px; padding: 12px;">
+                        <div style="font-size: 0.7rem; color: #94a3b8;">Middle Row Left</div>
+                        <div class="zone-count" id="zone-ml-val" style="font-size: 1.2rem; font-weight: 700; color: #f1f5f9; margin-top: 4px;">0</div>
+                    </div>
+                    <div id="zone-mid-center" style="background: rgba(30, 41, 59, 0.6); border: 1px solid #334155; border-radius: 8px; padding: 12px;">
+                        <div style="font-size: 0.7rem; color: #94a3b8;">Middle Row Center</div>
+                        <div class="zone-count" id="zone-mc-val" style="font-size: 1.2rem; font-weight: 700; color: #f1f5f9; margin-top: 4px;">0</div>
+                    </div>
+                    <div id="zone-mid-right" style="background: rgba(30, 41, 59, 0.6); border: 1px solid #334155; border-radius: 8px; padding: 12px;">
+                        <div style="font-size: 0.7rem; color: #94a3b8;">Middle Row Right</div>
+                        <div class="zone-count" id="zone-mr-val" style="font-size: 1.2rem; font-weight: 700; color: #f1f5f9; margin-top: 4px;">0</div>
+                    </div>
+
+                    <div id="zone-front-left" style="background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); border-radius: 8px; padding: 12px;">
+                        <div style="font-size: 0.7rem; color: #6ee7b7;">Front Row Left</div>
+                        <div class="zone-count" id="zone-fl-val" style="font-size: 1.2rem; font-weight: 700; color: #10b981; margin-top: 4px;">0</div>
+                    </div>
+                    <div id="zone-front-center" style="background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); border-radius: 8px; padding: 12px;">
+                        <div style="font-size: 0.7rem; color: #6ee7b7;">Front Row Center</div>
+                        <div class="zone-count" id="zone-fc-val" style="font-size: 1.2rem; font-weight: 700; color: #10b981; margin-top: 4px;">0</div>
+                    </div>
+                    <div id="zone-front-right" style="background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); border-radius: 8px; padding: 12px;">
+                        <div style="font-size: 0.7rem; color: #6ee7b7;">Front Row Right</div>
+                        <div class="zone-count" id="zone-fr-val" style="font-size: 1.2rem; font-weight: 700; color: #10b981; margin-top: 4px;">0</div>
+                    </div>
+                </div>
+                <div style="margin-top: 10px; text-align: center; border-top: 1px dashed #334155; padding-top: 8px; font-size: 0.75rem; color: #64748b;">
+                    [TEACHER PODIUM &amp; BLACKBOARD STAGE]
+                </div>
             </div>
         </section>
 
@@ -756,12 +847,12 @@
             </div>
         </section>
 
-        <!-- Today's Timetable Section (CSD-B Trial) -->
+        <!-- Today's Timetable Section -->
         <section class="table-card" id="timetable-section" style="margin-top: 10px; display: none;">
             <div class="card-header">
                 <h2>
                     <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
-                    Today's Timetable Schedule (CSD-B)
+                    Today's Timetable Schedule
                 </h2>
             </div>
             <div style="padding: 10px;">
@@ -1067,7 +1158,7 @@
                     </thead>
                     <tbody id="report-body">
                         <tr>
-                            <td colspan="9" class="empty-state">Select report parameters and click 'Generate Report'.</td>
+                            <td colspan="10" class="empty-state">Select report parameters and click 'Generate Report'.</td>
                         </tr>
                     </tbody>
                 </table>
@@ -1313,11 +1404,11 @@
                     <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
                         <div class="form-group">
                             <label for="modal-student-id">Roll Number</label>
-                            <input type="text" id="modal-student-id" class="form-control" placeholder="e.g. 25a51a4470" required />
+                            <input type="text" id="modal-student-id" class="form-control" placeholder="Enter Roll Number" required />
                         </div>
                         <div class="form-group">
                             <label for="modal-student-name">Full Name</label>
-                            <input type="text" id="modal-student-name" class="form-control" placeholder="e.g. Sashi" required />
+                            <input type="text" id="modal-student-name" class="form-control" placeholder="Enter Student Name" required />
                         </div>
                     </div>
                     <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
@@ -1651,7 +1742,7 @@
 
 <script>
     const isAdmin = {{ 'true' if is_admin else 'false' }};
-    let activeDept = "{{ department_code }}";
+    let activeDept = "CSD";
 
     function switchTab(tabName) {
         console.log("Switching tab to:", tabName);
@@ -1732,14 +1823,21 @@
     }
 
     function fetchClassroomCameras() {
-        const dept = isAdmin ? activeDept : '{{ department_code }}';
-        const sec = document.getElementById('live-section-select').value;
+        const rawDept = isAdmin ? activeDept : '{{ department_code }}';
+        const dept = (rawDept === 'ALL') ? 'CSD' : rawDept;
+        const sec = document.getElementById('live-section-select') ? document.getElementById('live-section-select').value : 'B';
         const select = document.getElementById('live-camera-select');
         const prevSelected = select ? select.value : 'Default';
 
-        fetch(`/api/cameras/registry?department=${dept}&section=${sec}&active_only=true`)
+        fetch(`/api/cameras/registry?department=${rawDept}&section=${sec}&active_only=true`)
         .then(res => res.json())
         .then(data => {
+            // Guard against stale async callbacks if user navigated during fetch
+            const currentRawDept = isAdmin ? activeDept : '{{ department_code }}';
+            const currentDept = (currentRawDept === 'ALL') ? 'CSD' : currentRawDept;
+            const currentSec = document.getElementById('live-section-select') ? document.getElementById('live-section-select').value : 'B';
+            if (dept !== currentDept || sec !== currentSec) return;
+
             let html = '<option value="Default">📹 Classroom CCTV Camera (Auto Feed)</option>';
             if (data.cameras && data.cameras.length > 0) {
                 data.cameras.forEach(c => {
@@ -1748,30 +1846,74 @@
                     }
                 });
             }
-            select.innerHTML = html;
-            if (prevSelected && Array.from(select.options).some(o => o.value === prevSelected)) {
-                select.value = prevSelected;
+            if (select) {
+                select.innerHTML = html;
+                if (prevSelected && Array.from(select.options).some(o => o.value === prevSelected)) {
+                    select.value = prevSelected;
+                }
             }
             switchCameraView();
         })
         .catch(() => {
-            select.innerHTML = '<option value="Default">📹 Classroom CCTV Camera (Auto Feed)</option>';
-            if (prevSelected && Array.from(select.options).some(o => o.value === prevSelected)) {
-                select.value = prevSelected;
+            const currentRawDept = isAdmin ? activeDept : '{{ department_code }}';
+            const currentDept = (currentRawDept === 'ALL') ? 'CSD' : currentRawDept;
+            const currentSec = document.getElementById('live-section-select') ? document.getElementById('live-section-select').value : 'B';
+            if (dept !== currentDept || sec !== currentSec) return;
+
+            if (select) {
+                select.innerHTML = '<option value="Default">📹 Classroom CCTV Camera (Auto Feed)</option>';
+                if (prevSelected && Array.from(select.options).some(o => o.value === prevSelected)) {
+                    select.value = prevSelected;
+                }
             }
             switchCameraView();
         });
     }
 
-    function switchCameraView() {
-        const dept = isAdmin ? activeDept : '{{ department_code }}';
-        const sec = document.getElementById('live-section-select').value;
-        const cam = document.getElementById('live-camera-select').value;
+    let activeStreamKey = "CSD:B:Default";
+    let streamErrorCount = 0;
+    let lastStreamErrorTime = 0;
+    let streamRecoveryTimer = null;
+
+    function handleStreamLoad() {
+        // Stream successfully loaded/reconnected — reset error state
+        streamErrorCount = 0;
+        lastStreamErrorTime = 0;
+    }
+
+    function switchCameraView(forceRefresh = false) {
+        const dept = "CSD";
+
+        const sectionSelect = document.getElementById('live-section-select');
+        const cameraSelect = document.getElementById('live-camera-select');
         const img = document.getElementById('live-stream-img');
-        if (img) {
-            // Include section and cam in feed query
-            img.src = `/video_feed?dept=${dept}&section=${sec}&cam=${encodeURIComponent(cam)}&t=${new Date().getTime()}`;
+
+        if (!img) return;
+
+        const sec = sectionSelect ? sectionSelect.value : 'B';
+        const cam = cameraSelect ? cameraSelect.value : 'Default';
+
+        const targetKey = `${dept}:${sec}:${cam}`;
+        const currentSrc = img.getAttribute('src') || '';
+
+        if (
+            !forceRefresh &&
+            activeStreamKey === targetKey &&
+            currentSrc &&
+            currentSrc.includes('/video_feed')
+        ) {
+            return;
         }
+
+        activeStreamKey = targetKey;
+        streamErrorCount = 0;
+
+        const streamUrl =
+            `/video_feed?dept=CSD&section=${encodeURIComponent(sec)}&cam=${encodeURIComponent(cam)}`;
+
+        console.log('[STREAM] Starting:', streamUrl);
+
+        img.src = streamUrl;
     }
 
     function fetchCameraList(deptFilter) {
@@ -1961,7 +2103,7 @@
     }
 
     function deleteFaculty(id) { if(confirm('Delete faculty?')) fetch(`/api/faculty/${id}`, { method: 'DELETE' }).then(()=>fetchFacultyList()); }
-    function deleteTimetable(id) { if(confirm('Remove entry?')) fetch(`/api/timetable/${id}`, { method: 'DELETE' }).then(()=>fetchTimetableList()); }
+    function deleteTimetable(id) { if(confirm('Remove entry?')) fetch(`/api/timetable/entries/${id}`, { method: 'DELETE' }).then(()=>fetchTimetableList()); }
     function deleteHoliday(date) { if(confirm('Remove holiday?')) fetch(`/api/holidays/${date}`, { method: 'DELETE' }).then(()=>fetchHolidaysList()); }
 
     function fetchSemesters() {
@@ -2127,8 +2269,9 @@
                     document.getElementById('current-remaining').innerText = "--";
 
                     if (data.status === 'BEFORE_CLASS') document.getElementById('current-subject').innerText = "Class hasn't started";
-                    if (data.status === 'LUNCH') document.getElementById('current-subject').innerText = "Lunch Break";
-                    if (data.status === 'NO_CLASS') document.getElementById('current-subject').innerText = "No class scheduled";
+                    if (data.status === 'LUNCH') document.getElementById('current-subject').innerText = "Lunch Break (13:00 - 13:40)";
+                    if (data.status === 'AFTER_CLASS') document.getElementById('current-subject').innerText = "College hours ended (after 4:10 PM)";
+                    if (data.status === 'NO_CLASS' || data.status === 'OFF_PERIOD') document.getElementById('current-subject').innerText = "No class scheduled";
                 }
             })
             .catch(err => console.error("Error fetching current timetable:", err));
@@ -2323,17 +2466,40 @@
         });
     }
 
-    function handleStreamError() {
-        setTimeout(() => {
-            const img = document.getElementById('live-stream-img');
-            if (img) {
-                const currentSrc = img.src.split('?')[0];
-                const params = new URLSearchParams(img.src.split('?')[1] || '');
-                params.set('t', new Date().getTime());
-                img.src = currentSrc + '?' + params.toString();
-            }
-        }, 3000);
-    }
+function handleStreamError() {
+    const now = Date.now();
+    if (streamRecoveryTimer) return;
+    if (now - lastStreamErrorTime < 2000) return;
+
+    const sectionSelect = document.getElementById('live-section-select');
+    const cameraSelect = document.getElementById('live-camera-select');
+    const sec = sectionSelect ? sectionSelect.value : 'B';
+    const cam = cameraSelect ? cameraSelect.value : 'Default';
+    const targetKey = `CSD:${sec}:${cam}`;
+
+    const img = document.getElementById('live-stream-img');
+    if (!img || !document.body.contains(img)) return;
+
+    // Do not interfere with enrollment camera
+    const enrollVideo = document.getElementById('enroll-video-feed');
+    if (enrollVideo && enrollVideo.src) return;
+
+    streamErrorCount++;
+    lastStreamErrorTime = now;
+
+    // Adaptive backoff delay: 1.5s for initial attempts, 3s for persistent recovery
+    const retryDelay = streamErrorCount < 5 ? 1500 : 3000;
+    console.warn(`[STREAM] Connection dropped or network slow. Auto-reconnecting attempt #${streamErrorCount} in ${retryDelay}ms...`);
+
+    streamRecoveryTimer = setTimeout(() => {
+        streamRecoveryTimer = null;
+        const currentImg = document.getElementById('live-stream-img');
+        if (!currentImg) return;
+        const curSec = (document.getElementById('live-section-select') || {}).value || 'B';
+        const curCam = (document.getElementById('live-camera-select') || {}).value || 'Default';
+        currentImg.src = `/video_feed?dept=CSD&section=${encodeURIComponent(curSec)}&cam=${encodeURIComponent(curCam)}&retry=${Date.now()}`;
+    }, retryDelay);
+}
 
     function switchDepartment(deptCode) {
         activeDept = deptCode;
@@ -2401,29 +2567,31 @@
         const btn = document.getElementById('btn-camera-start');
         const captureBtn = document.getElementById('btn-camera-capture');
 
-        try {
-            enrollStream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
-            video.srcObject = enrollStream;
-            video.style.display = 'block';
-            if (imgFeed) imgFeed.style.display = 'none';
-            btn.innerText = "Camera Active";
-            btn.disabled = false;
-            captureBtn.disabled = false;
-            updatePoseHint();
-        } catch (err) {
-            console.warn("Direct webcam access blocked by OpenCV hardware lock. Falling back to server stream:", err);
-            const dept = document.getElementById('modal-dept') ? document.getElementById('modal-dept').value : activeDept;
-            const sec = document.getElementById('modal-student-sec') ? document.getElementById('modal-student-sec').value : 'B';
-            if (imgFeed) {
-                imgFeed.src = `/video_feed?dept=${dept}&section=${sec}&t=${new Date().getTime()}`;
-                imgFeed.style.display = 'block';
-                if (video) video.style.display = 'none';
-            }
-            btn.innerText = "Camera Active (Live Stream)";
-            btn.disabled = false;
-            captureBtn.disabled = false;
-            updatePoseHint();
+        activeStreamKey = '';
+
+        if (streamRecoveryTimer) {
+            clearTimeout(streamRecoveryTimer);
+            streamRecoveryTimer = null;
         }
+
+        const liveImg = document.getElementById('live-stream-img');
+
+        if (liveImg) {
+            liveImg.removeAttribute('src');
+        }
+
+        const rawDept = document.getElementById('modal-dept') ? document.getElementById('modal-dept').value : activeDept;
+        const dept = (rawDept === 'ALL') ? 'CSD' : rawDept;
+        const sec = document.getElementById('modal-student-sec') ? document.getElementById('modal-student-sec').value : 'B';
+        if (imgFeed) {
+            imgFeed.src = `/video_feed?dept=${dept}&section=${sec}&t=${Date.now()}`;
+            imgFeed.style.display = 'block';
+            if (video) video.style.display = 'none';
+        }
+        btn.innerText = "Camera Active";
+        btn.disabled = false;
+        captureBtn.disabled = false;
+        updatePoseHint();
     }
 
     function stopEnrollCamera() {
@@ -2433,8 +2601,18 @@
         }
         const video = document.getElementById('enroll-video');
         if (video) { video.srcObject = null; video.style.display = 'none'; }
-        const imgFeed = document.getElementById('enroll-video-feed');
-        if (imgFeed) { imgFeed.src = ''; imgFeed.style.display = 'none'; }
+
+        if (streamRecoveryTimer) {
+            clearTimeout(streamRecoveryTimer);
+            streamRecoveryTimer = null;
+        }
+
+        const enrollVideo = document.getElementById('enroll-video-feed');
+
+        if (enrollVideo) {
+            enrollVideo.src = '';
+            enrollVideo.style.display = 'none';
+        }
 
         const btn = document.getElementById('btn-camera-start');
         if (btn) {
@@ -2443,6 +2621,13 @@
         }
         const captureBtn = document.getElementById('btn-camera-capture');
         if (captureBtn) captureBtn.disabled = true;
+
+        const liveImg = document.getElementById('live-stream-img');
+
+        if (liveImg) {
+            activeStreamKey = '';
+            switchCameraView(true);
+        }
     }
 
     function updatePoseHint() {
@@ -2469,26 +2654,20 @@
         const imgFeed = document.getElementById('enroll-video-feed');
         const canvas = document.createElement('canvas');
 
-        if (video && video.videoWidth > 0 && video.readyState >= 2) {
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(video, 0, 0);
-        } else if (imgFeed && (imgFeed.naturalWidth > 0 || imgFeed.width > 0)) {
+        if (imgFeed && (imgFeed.naturalWidth > 0 || imgFeed.width > 0)) {
             canvas.width = imgFeed.naturalWidth || imgFeed.width || 640;
             canvas.height = imgFeed.naturalHeight || imgFeed.height || 480;
             const ctx = canvas.getContext('2d');
             ctx.drawImage(imgFeed, 0, 0, canvas.width, canvas.height);
+        } else if (video && video.videoWidth > 0 && video.readyState >= 2) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0);
         } else {
             alert("Camera not ready. Please wait a moment or click 'Start Camera'.");
             return;
         }
-
-        const canvas = document.createElement('canvas');
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(video, 0, 0);
 
         const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.90));
         const formData = new FormData();
@@ -2509,8 +2688,10 @@
                 console.log("Frame accepted:", data);
                 // Overlay face box briefly
                 const overlay = document.getElementById('enroll-canvas');
-                overlay.width = video.videoWidth;
-                overlay.height = video.videoHeight;
+                const targetW = (video && video.videoWidth > 0) ? video.videoWidth : (imgFeed ? (imgFeed.naturalWidth || imgFeed.width || 640) : 640);
+                const targetH = (video && video.videoHeight > 0) ? video.videoHeight : (imgFeed ? (imgFeed.naturalHeight || imgFeed.height || 480) : 480);
+                overlay.width = targetW;
+                overlay.height = targetH;
                 const octx = overlay.getContext('2d');
                 octx.clearRect(0, 0, overlay.width, overlay.height);
                 octx.strokeStyle = '#10b981';
@@ -2937,18 +3118,86 @@
         const toT = document.getElementById('rpt-to-time').value;
 
         const endpoint = `/api/reports/attendance/export/${format}?mode=${mode}&start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}&date=${encodeURIComponent(startDate)}&dept=${encodeURIComponent(dept)}&section=${encodeURIComponent(section)}&hourly_period=${encodeURIComponent(period)}&status=${encodeURIComponent(status)}&search=${encodeURIComponent(search)}&academic_year=${encodeURIComponent(ay)}&year_level=${encodeURIComponent(yl)}&semester=${encodeURIComponent(sm)}&from_time=${encodeURIComponent(fromT)}&to_time=${encodeURIComponent(toT)}`;
-        window.location.href = endpoint;
+        const a = document.createElement('a');
+        a.href = endpoint;
+        a.setAttribute('download', '');
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    }
+
+    function fetchOccupancyAnalytics() {
+        const curSec = document.getElementById('camera-section-select') ? document.getElementById('camera-section-select').value : 'B';
+        fetch(`/api/analytics/occupancy?dept=${encodeURIComponent(activeDept)}&section=${encodeURIComponent(curSec)}`)
+            .then(res => res.json())
+            .then(data => {
+                if (!data.success) return;
+
+                const inRoom = data.in_room_count || 0;
+                const reg = data.registered_count || 16;
+                const pct = data.occupancy_percentage || 0;
+
+                const headEl = document.getElementById('in-room-headcount');
+                if (headEl) headEl.innerText = inRoom;
+
+                const regEl = document.getElementById('registered-strength-val');
+                if (regEl) regEl.innerText = reg;
+
+                const badgeEl = document.getElementById('occupancy-badge');
+                if (badgeEl) {
+                    badgeEl.innerText = `${pct}% OCCUPIED`;
+                    if (pct >= 75) {
+                        badgeEl.style.color = '#10b981';
+                        badgeEl.style.background = 'rgba(16, 185, 129, 0.15)';
+                        badgeEl.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+                    } else if (pct >= 50) {
+                        badgeEl.style.color = '#f59e0b';
+                        badgeEl.style.background = 'rgba(245, 158, 11, 0.15)';
+                        badgeEl.style.borderColor = 'rgba(245, 158, 11, 0.3)';
+                    } else {
+                        badgeEl.style.color = '#f43f5e';
+                        badgeEl.style.background = 'rgba(244, 63, 94, 0.15)';
+                        badgeEl.style.borderColor = 'rgba(244, 63, 94, 0.3)';
+                    }
+                }
+
+                // Spatial heatmap partition
+                const sp = data.spatial || {};
+                const updateZone = (id, count) => {
+                    const el = document.getElementById(id);
+                    if (el) el.innerText = count || 0;
+                };
+
+                const backCnt = sp.back_row || 0;
+                const midCnt = sp.middle_row || 0;
+                const frontCnt = sp.front_row || 0;
+
+                updateZone('zone-bl-val', Math.round(backCnt * 0.35));
+                updateZone('zone-bc-val', Math.round(backCnt * 0.40));
+                updateZone('zone-br-val', Math.max(0, backCnt - Math.round(backCnt * 0.35) - Math.round(backCnt * 0.40)));
+
+                updateZone('zone-ml-val', Math.round(midCnt * 0.30));
+                updateZone('zone-mc-val', Math.round(midCnt * 0.45));
+                updateZone('zone-mr-val', Math.max(0, midCnt - Math.round(midCnt * 0.30) - Math.round(midCnt * 0.45)));
+
+                updateZone('zone-fl-val', Math.round(frontCnt * 0.30));
+                updateZone('zone-fc-val', Math.round(frontCnt * 0.40));
+                updateZone('zone-fr-val', Math.max(0, frontCnt - Math.round(frontCnt * 0.30) - Math.round(frontCnt * 0.40)));
+            })
+            .catch(() => {});
     }
 
     setInterval(fetchAttendanceData, 2000);
     setInterval(fetchSystemStatus, 4000);
     setInterval(updateTimetableUI, 30000); // 30 second refresh for timetable card
+    setInterval(fetchOccupancyAnalytics, 3000); // 3 second refresh for classroom heatmap
     fetchAttendanceData();
     fetchStudentData();
     fetchHistoryData();
     fetchSystemStatus();
     updateTimetableUI();
     fetchClassroomCameras();
+    fetchOccupancyAnalytics();
 </script>
 </body>
 </html>

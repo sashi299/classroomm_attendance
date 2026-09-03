@@ -38,6 +38,7 @@ class AttendanceStatus(Enum):
     SKIPPED_NO_CLASS = "NO CLASS"
     SKIPPED_BEFORE_CLASS = "BEFORE CLASS"
     SKIPPED_LUNCH = "LUNCH BREAK"
+    SKIPPED_AFTER_CLASS = "AFTER CLASS"
     SKIPPED_HOLIDAY = "HOLIDAY"
 
 
@@ -279,24 +280,23 @@ class AttendanceManager:
 
         # ── Timetable slot detection ──────────────────────────────
         slot = self.db.get_current_timetable_slot(department=dept, section=sec, now=now)
-        slot_status = slot.get("status", "NO_CLASS")
+        slot_status = slot.get("status", "ACTIVE")
 
-        if slot_status == "BEFORE_CLASS":
-            logger.debug("Skipping attendance for [%s]: before class hours.", student_id)
-            return AttendanceStatus.SKIPPED_BEFORE_CLASS
+        # Block attendance if college hours ended, before class, lunch, or no class
+        if slot_status != "ACTIVE":
+            logger.debug("Skipping attendance for [%s]: outside active timetable slot (status: %s).", student_id, slot_status)
+            if slot_status == "BEFORE_CLASS":
+                return AttendanceStatus.SKIPPED_BEFORE_CLASS
+            elif slot_status == "AFTER_CLASS":
+                return AttendanceStatus.SKIPPED_AFTER_CLASS
+            elif slot_status == "LUNCH":
+                return AttendanceStatus.SKIPPED_LUNCH
+            else:
+                return AttendanceStatus.SKIPPED_NO_CLASS
 
-        if slot_status == "LUNCH":
-            logger.debug("Skipping attendance for [%s]: lunch break.", student_id)
-            return AttendanceStatus.SKIPPED_LUNCH
-
-        if slot_status == "NO_CLASS":
-            logger.debug("Skipping attendance for [%s]: no class scheduled.", student_id)
-            return AttendanceStatus.SKIPPED_NO_CLASS
-
-        # ── ACTIVE period: extract timetable context ──────────────
         period_number = slot.get("period_number", 1)
-        subject = slot.get("subject")
-        class_type = slot.get("class_type")
+        subject = slot.get("subject") if slot.get("subject") not in [None, "", "N/A"] else "Class Session"
+        class_type = slot.get("class_type") if slot.get("class_type") not in [None, "", "N/A"] else "THEORY"
         slot_start = slot.get("start_time", "")
         slot_end = slot.get("end_time", "")
 
@@ -318,7 +318,13 @@ class AttendanceManager:
 
         # Derive hourly_period from timetable slot (e.g. "09:15-10:20")
         if not hourly_period:
-            hourly_period = self._format_period_label(slot_start, slot_end)
+            if slot_start and slot_end and slot_start not in ["None", ""] and slot_end not in ["None", ""]:
+                try:
+                    hourly_period = self._format_period_label(slot_start, slot_end)
+                except Exception:
+                    hourly_period = f"{slot_start[:5]}-{slot_end[:5]}"
+            else:
+                hourly_period = f"P{period_number}"
 
         cache_key = (student_id, today, hourly_period, dept)
 
@@ -362,6 +368,8 @@ class AttendanceManager:
             return f"DB ERROR - {student_name}"
         elif status == AttendanceStatus.SKIPPED_BEFORE_CLASS:
             return f"BEFORE CLASS - {student_name}"
+        elif status == AttendanceStatus.SKIPPED_AFTER_CLASS:
+            return f"AFTER CLASS - {student_name}"
         elif status == AttendanceStatus.SKIPPED_LUNCH:
             return f"LUNCH BREAK - {student_name}"
         elif status == AttendanceStatus.SKIPPED_NO_CLASS:
@@ -408,30 +416,40 @@ class AttendanceManager:
         dept = (dept_code or "CSD").strip().upper()
         sec = (section or "B").strip().upper()
 
+        # 0. Holiday / Sunday check
+        if self.db.is_holiday(att_date):
+            logger.debug("Skipping period finalization: %s is a holiday/Sunday.", att_date)
+            return 0, 0, 0
+
         # 1. Fetch timetable slot details
         day_code = getattr(self.db, "_WEEKDAY_MAP", {}).get(att_date.weekday(), "SUN")
         timetable_entries = self.db.get_timetable(department=dept, section=sec, day=day_code)
         slot_info = next((t for t in timetable_entries if t.get("period_number") == period_number), None)
 
-        subject = slot_info.get("subject", "N/A") if slot_info else "N/A"
-        class_type = slot_info.get("class_type", "THEORY") if slot_info else "THEORY"
-        slot_start = slot_info.get("start_time", "09:00:00") if slot_info else "09:00:00"
-        slot_end = slot_info.get("end_time", "10:00:00") if slot_info else "10:00:00"
-        hourly_period = self._format_period_label(slot_start, slot_end)
+        if not slot_info:
+            logger.debug("No timetable slot found for %s-%s Period %d on %s (%s).", dept, sec, period_number, att_date, day_code)
+            return 0, 0, 0
 
-        # 2. Get registered students
+        subject = slot_info.get("subject") or "Class Session"
+        class_type = slot_info.get("class_type") or "THEORY"
+        slot_start = slot_info.get("start_time", "09:00:00")
+        slot_end = slot_info.get("end_time", "10:00:00")
+        hourly_period = self._format_period_label(str(slot_start), str(slot_end))
+
+        # 2. Get registered active students for this section
         all_students = self.db.get_students_by_department(dept)
         section_students = [
             s for s in all_students
-            if s.get("section", "B").strip().upper() == sec or not s.get("section")
+            if s.get("is_active", True) and ((s.get("section") or "B").strip().upper() == sec)
         ]
+        section_student_ids = {s.get("student_id", "").strip().upper() for s in section_students if s.get("student_id")}
 
         # 3. Get present attendance records
         today_records = self.db.get_today_attendance(today=att_date, dept_code=dept, period=hourly_period)
         present_student_ids = {
             r["student_id"].strip().upper()
             for r in today_records
-            if r.get("status", "").upper() == "PRESENT"
+            if r.get("status", "").upper() == "PRESENT" and r.get("student_id", "").strip().upper() in section_student_ids
         }
 
         # 4. Insert ABSENT for unrecognized students
@@ -441,14 +459,14 @@ class AttendanceManager:
             end_time_obj = slot_end
         elif isinstance(slot_end, str) and ":" in slot_end:
             try:
-                parts = slot_end.split(":")
-                end_time_obj = dt_time(int(parts[0]), int(parts[1]))
+                parts = slot_end.strip().split(":")
+                end_time_obj = dt_time(int(parts[0]), int(parts[1]), int(parts[2]) if len(parts) > 2 else 0)
             except Exception:
                 pass
 
         for student in section_students:
             s_id = student.get("student_id", "").strip().upper()
-            s_name = student.get("name", s_id)
+            s_name = student.get("name") or student.get("student_name") or s_id
             if s_id and s_id not in present_student_ids:
                 inserted = self.db.insert_attendance(
                     student_id=s_id,

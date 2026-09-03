@@ -24,6 +24,8 @@ def get_iou(boxA, boxB):
     union = float(areaA + areaB - inter)
     return inter / union if union > 0 else 0
 
+import threading
+
 class FaceEngineManager:
     """Orchestrates multiple FaceEngine instances and student photo management."""
 
@@ -31,21 +33,26 @@ class FaceEngineManager:
         self.base_dir = base_dir
         self.recognition_threshold = recognition_threshold
         self.engines: Dict[str, FaceEngine] = {}
+        self._lock = threading.Lock()
 
     def get_engine(self, department_code: str) -> FaceEngine:
-        if department_code not in self.engines:
-            dept_dir = os.path.join(self.base_dir, department_code)
-            os.makedirs(dept_dir, exist_ok=True)
-            logger.info("Initializing FaceEngine for department [%s] from %s", department_code, dept_dir)
-            engine = FaceEngine(known_students_dir=dept_dir, recognition_threshold=self.recognition_threshold)
-            engine.load_registered_students()
-            self.engines[department_code] = engine
-        return self.engines[department_code]
+        dept = (department_code or "CSD").strip().upper()
+        with self._lock:
+            if dept not in self.engines:
+                dept_dir = os.path.join(self.base_dir, dept)
+                os.makedirs(dept_dir, exist_ok=True)
+                logger.info("Initializing FaceEngine for department [%s] from %s", dept, dept_dir)
+                engine = FaceEngine(known_students_dir=dept_dir, recognition_threshold=self.recognition_threshold)
+                engine.load_registered_students()
+                self.engines[dept] = engine
+            return self.engines[dept]
 
     def reload_engine(self, department_code: str):
-        if department_code in self.engines:
-            logger.info("Reloading FaceEngine for department [%s]", department_code)
-            self.engines[department_code].load_registered_students()
+        dept = (department_code or "CSD").strip().upper()
+        with self._lock:
+            if dept in self.engines:
+                logger.info("Reloading FaceEngine for department [%s]", dept)
+                self.engines[dept].load_registered_students()
 
     def add_student_photo(self, department_code: str, student_id: str, student_name: str, file_obj, filename: str) -> Tuple[bool, str]:
         """Validate photo for exactly one face and save to department registry."""
@@ -143,6 +150,21 @@ class FaceEngineManager:
                 })
 
         return merged
+
+    def get_all_registered_student_ids(self, db_manager: DatabaseManager) -> Dict[str, List[str]]:
+        """Return map of department_code -> list of unique registered student IDs."""
+        all_ids = {}
+        # We only know about departments we have initialized engines for or that exist in base_dir
+        if not os.path.exists(self.base_dir):
+            return {}
+
+        for dept in os.listdir(self.base_dir):
+            dept_path = os.path.join(self.base_dir, dept)
+            if os.path.isdir(dept_path):
+                engine = self.get_engine(dept)
+                info = engine.get_registered_students_info()
+                all_ids[dept] = [str(i["student_id"]) for i in info]
+        return all_ids
 
     def get_student_photo_path(self, department_code: str, student_id: str) -> Optional[str]:
         """Resolve the absolute filesystem path for a student's primary photo."""

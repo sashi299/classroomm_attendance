@@ -60,12 +60,13 @@ class Config:
     SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
     SMTP_FROM = os.getenv("SMTP_FROM", SMTP_USERNAME)
 
-    # Face Recognition Parameters
-    RECOGNITION_THRESHOLD = float(os.getenv("RECOGNITION_THRESHOLD", "0.55"))
+    # Face Recognition Parameters (ArcFace Cosine Similarity Threshold)
+    RECOGNITION_THRESHOLD = float(os.getenv("RECOGNITION_THRESHOLD", "0.40"))
 
-    # Student Directory & Storage Configuration
-    STUDENTS_BASE_DIR = os.getenv("STUDENTS_BASE_DIR", "students")
-    KNOWN_STUDENTS_DIR = os.getenv("KNOWN_STUDENTS_DIR", "known_students")  # Backward compatibility
+    # Project Root & Student Directory Configuration
+    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    STUDENTS_BASE_DIR = os.getenv("STUDENTS_BASE_DIR", os.path.join(BASE_DIR, "students"))
+    KNOWN_STUDENTS_DIR = os.getenv("KNOWN_STUDENTS_DIR", os.path.join(BASE_DIR, "known_students"))
     STORAGE_BACKEND = os.getenv("STORAGE_BACKEND", "local").lower()
 
     # Server Port Configuration
@@ -81,8 +82,8 @@ class Config:
     DEPARTMENT_CODE = os.getenv("DEPARTMENT_CODE", "CSD")
     DASHBOARD_PORT = int(os.getenv("DASHBOARD_PORT", "5000"))
 
-    # Dynamic Department Helper Methods
-    DEFAULT_DEPARTMENT_CODES = ["CSD", "CSM", "CSE", "CSC", "MECH", "CIVIL", "EEE", "ECE"]
+    # Dynamic Department Helper Methods (CSD only for trial)
+    DEFAULT_DEPARTMENT_CODES = ["CSD"]
 
     @classmethod
     def _parse_camera_sources(cls, env_val: str) -> list:
@@ -120,13 +121,6 @@ class Config:
 
         return {
             "CSD": cls._parse_camera_sources(os.getenv("CAMERA_CSD", os.getenv("RTSP_URL", "0"))),
-            "CSM": cls._parse_camera_sources(os.getenv("CAMERA_CSM", "0")),
-            "CSE": cls._parse_camera_sources(os.getenv("CAMERA_CSE", "0")),
-            "CSC": cls._parse_camera_sources(os.getenv("CAMERA_CSC", "0")),
-            "MECH": cls._parse_camera_sources(os.getenv("CAMERA_MECH", "0")),
-            "CIVIL": cls._parse_camera_sources(os.getenv("CAMERA_CIVIL", "0")),
-            "EEE": cls._parse_camera_sources(os.getenv("CAMERA_EEE", "0")),
-            "ECE": cls._parse_camera_sources(os.getenv("CAMERA_ECE", "0")),
         }
 
     # Backward compatibility properties

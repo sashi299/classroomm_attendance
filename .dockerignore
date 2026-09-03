@@ -1,0 +1,15 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.git/
+.gitignore
+.env
+scratch/
+test_stream.mjpeg
+*.pptx
+cookies.txt
+login_response.html
+.vscode/
+.idea/

@@ -10,6 +10,7 @@ Provides:
 
 import os
 import logging
+import threading
 from typing import Optional, Dict, List, Tuple, Any
 
 import cv2
@@ -79,6 +80,7 @@ class CameraManager:
 
         # Cache: (dept_code, section, classroom, cam_name) -> CameraStream instance
         self._cameras: Dict[Tuple[str, str, str, str], CameraStream] = {}
+        self._lock = threading.Lock()
 
         logger.info("CameraManager initialized.")
 
@@ -101,18 +103,20 @@ class CameraManager:
     def set_department_camera(self, dept_code: str, camera_source: str):
         """Update or set camera source for a department dynamically (Legacy)."""
         code = (dept_code or "").strip().upper()
-        self._legacy_config[code] = [camera_source.strip()] if camera_source else []
-        # Clear cache for this dept
-        for key in list(self._cameras.keys()):
-            if key[0] == code:
-                try: self._cameras[key].release()
-                except: pass
-                del self._cameras[key]
+        with self._lock:
+            self._legacy_config[code] = [camera_source.strip()] if camera_source else []
+            # Clear cache for this dept
+            for key in list(self._cameras.keys()):
+                if key[0] == code:
+                    try: self._cameras[key].release()
+                    except: pass
+                    del self._cameras[key]
 
     def get_camera(self, dept_code: str, section: str = "B", classroom: str = "Main", cam_name: str = "Default", **kwargs) -> Optional[CameraStream]:
         """Get (or lazily create and connect) camera. Supports legacy cam_index."""
-        dept = dept_code.upper()
-        sec = section.upper()
+        dept = (dept_code or "CSD").strip().upper()
+        sec = (section or "B").strip().upper()
+        cam_n = (cam_name or "Default").strip()
 
         # Legacy cam_index handling
         if "cam_index" in kwargs:
@@ -120,94 +124,97 @@ class CameraManager:
             if not self.db:
                 sources = self._legacy_config.get(dept, [])
                 if 0 <= idx < len(sources):
-                    cam_name = str(idx)
+                    cam_n = str(idx)
                     sec = "B"
                     classroom = "Main"
                 else:
                     return None # Out of bounds legacy index
 
-        cache_key = (dept, sec, classroom, cam_name)
+        cache_key = (dept, sec, classroom, cam_n)
 
-        if cache_key in self._cameras:
-            cam = self._cameras[cache_key]
-            if cam and cam._is_connected:
-                return cam
-            else:
-                logger.info("Retrying connection for cached camera %s-%s [%s]...", dept, sec, cam_name)
-                cam.connect()
-                if cam._is_connected:
+        with self._lock:
+            if cache_key in self._cameras:
+                cam = self._cameras[cache_key]
+                if cam and cam._is_connected:
                     return cam
-                try:
-                    cam.release()
-                except Exception:
-                    pass
-                del self._cameras[cache_key]
+                else:
+                    logger.info("Retrying connection for cached camera %s-%s [%s]...", dept, sec, cam_n)
+                    cam.connect()
+                    if cam._is_connected:
+                        return cam
+                    try:
+                        cam.release()
+                    except Exception:
+                        pass
+                    del self._cameras[cache_key]
 
-        # Determine primary requested camera source
-        cam_lower = str(cam_name).strip().lower()
-        if "webcam" in cam_lower or "laptop" in cam_lower:
-            cfg = {"source": "0"}
-        elif cam_name == "Default" or "matrix" in cam_lower or "cctv" in cam_lower:
-            configs = self._get_camera_config(dept, sec)
-            if configs:
-                cfg = configs[0]
+            # Determine primary requested camera source
+            cam_lower = str(cam_n).strip().lower()
+            if "webcam" in cam_lower or "laptop" in cam_lower:
+                cfg = {"source": "0"}
+            elif cam_n == "Default" or "matrix" in cam_lower or "cctv" in cam_lower:
+                configs = self._get_camera_config(dept, sec)
+                if configs:
+                    cfg = configs[0]
+                else:
+                    env_cam = os.getenv(f"CAMERA_{dept}", os.getenv("RTSP_URL", "rtsp://admin:admin@192.168.1.126:554/"))
+                    cfg = {"source": env_cam}
             else:
-                env_cam = os.getenv(f"CAMERA_{dept}", os.getenv("RTSP_URL", "rtsp://admin:admin@192.168.1.126:554/"))
-                cfg = {"source": env_cam}
-        else:
-            configs = self._get_camera_config(dept, sec)
-            cfg = None
-            if configs:
-                cfg = next((c for c in configs if c["name"] == cam_name), None)
-            if not cfg:
-                env_cam = os.getenv(f"CAMERA_{dept}", "0")
-                cfg = {"source": env_cam}
+                configs = self._get_camera_config(dept, sec)
+                cfg = None
+                if configs:
+                    cfg = next((c for c in configs if c["name"] == cam_n), None)
+                if not cfg:
+                    env_cam = os.getenv(f"CAMERA_{dept}", "0")
+                    cfg = {"source": env_cam}
 
-        primary_source = cfg["source"]
-        logger.info("Attempting primary camera for %s-%s [%s]: source=%s", dept, sec, cam_name, primary_source)
+            primary_source = cfg["source"]
+            logger.info("Attempting primary camera for %s-%s [%s]: source=%s", dept, sec, cam_n, primary_source)
 
-        cam = CameraStream(source=primary_source)
-        if cam.connect() and cam._is_connected:
-            self._cameras[cache_key] = cam
-            return self._cameras[cache_key]
+            cam = CameraStream(source=primary_source)
+            if cam.connect() and cam._is_connected:
+                self._cameras[cache_key] = cam
+                return self._cameras[cache_key]
 
-        # Primary CCTV failed/offline -> Auto fallback to Laptop Webcam (source 0)
-        logger.info("Primary camera source %s offline. Auto falling back to Laptop Webcam...", primary_source)
-        try:
-            cam.release()
-        except Exception: pass
+            # Primary CCTV failed/offline -> Auto fallback to Laptop Webcam (source 0)
+            logger.info("Primary camera source %s offline. Auto falling back to Laptop Webcam...", primary_source)
+            try:
+                cam.release()
+            except Exception: pass
 
-        fallback_cam = CameraStream(source="0")
-        if fallback_cam.connect() and fallback_cam._is_connected:
+            fallback_cam = CameraStream(source="0")
+            if fallback_cam.connect() and fallback_cam._is_connected:
+                self._cameras[cache_key] = fallback_cam
+                return self._cameras[cache_key]
+
+            # Secondary fallback -> Try index 1
+            logger.info("Webcam source 0 unavailable. Trying index 1...")
+            try:
+                fallback_cam.release()
+            except Exception: pass
+
+            fallback_cam2 = CameraStream(source="1")
+            if fallback_cam2.connect() and fallback_cam2._is_connected:
+                self._cameras[cache_key] = fallback_cam2
+                return self._cameras[cache_key]
+
             self._cameras[cache_key] = fallback_cam
             return self._cameras[cache_key]
 
-        # Secondary fallback -> Try index 1
-        logger.info("Webcam source 0 unavailable. Trying index 1...")
-        try:
-            fallback_cam.release()
-        except Exception: pass
-
-        fallback_cam2 = CameraStream(source="1")
-        if fallback_cam2.connect() and fallback_cam2._is_connected:
-            self._cameras[cache_key] = fallback_cam2
-            return self._cameras[cache_key]
-
-        self._cameras[cache_key] = fallback_cam
-        return self._cameras[cache_key]
-
     def is_camera_available(self, dept_code: str, section: str = "B", classroom: str = "Main", cam_name: str = "Default", **kwargs) -> bool:
         """Check if camera exists and is connected (cached)."""
-        dept = dept_code.upper()
-        sec = section.upper()
+        dept = (dept_code or "CSD").strip().upper()
+        sec = (section or "B").strip().upper()
+        cam_n = (cam_name or "Default").strip()
         if "cam_index" in kwargs:
             idx = kwargs["cam_index"]
-            cam_name = str(idx)
+            cam_n = str(idx)
 
-        cache_key = (dept, sec, classroom, cam_name)
-        cam = self._cameras.get(cache_key)
-        if cam is None: return False
-        return cam.is_connected
+        cache_key = (dept, sec, classroom, cam_n)
+        with self._lock:
+            cam = self._cameras.get(cache_key)
+            if cam is None: return False
+            return cam.is_connected
 
     def get_available_cameras(self, dept_code: str, section: Optional[str] = None) -> List[Dict[str, Any]]:
         """Return list of active cameras for UI selection."""
@@ -215,15 +222,16 @@ class CameraManager:
 
     def release_all(self):
         """Release all cached camera streams."""
-        logger.info("Releasing all camera streams...")
-        for key, cam in list(self._cameras.items()):
-            try:
-                cam.release()
-                logger.info("  Released camera %s", key)
-            except Exception as e:
-                logger.warning("  Error releasing camera %s: %s", key, e)
-        self._cameras.clear()
-        logger.info("All camera streams released.")
+        with self._lock:
+            logger.info("Releasing all camera streams...")
+            for key, cam in list(self._cameras.items()):
+                try:
+                    cam.release()
+                    logger.info("  Released camera %s", key)
+                except Exception as e:
+                    logger.warning("  Error releasing camera %s: %s", key, e)
+            self._cameras.clear()
+            logger.info("All camera streams released.")
 
     def get_camera_status(self) -> Dict[str, dict]:
         """Return camera status for all departments (Legacy support)."""

@@ -23,7 +23,6 @@ logger = logging.getLogger(__name__)
 
 # ── Department User Store ──────────────────────────────────────
 # Each user has: username, password_hash, role, department_code, department_name
-# Passwords should be set via environment variables in production.
 USERS: Dict[str, dict] = {
     "csd_hod": {
         "password_hash": generate_password_hash(os.getenv("PASS_CSD_HOD", "csd@hod2026")),
@@ -31,53 +30,35 @@ USERS: Dict[str, dict] = {
         "department_code": "CSD",
         "department_name": "CSD - Computer Science & Design",
     },
-    "csm_hod": {
-        "password_hash": generate_password_hash(os.getenv("PASS_CSM_HOD", "csm@hod2026")),
-        "role": "hod",
-        "department_code": "CSM",
-        "department_name": "CSM - CSE (AI & ML)",
-    },
     "cse_hod": {
         "password_hash": generate_password_hash(os.getenv("PASS_CSE_HOD", "cse@hod2026")),
         "role": "hod",
         "department_code": "CSE",
-        "department_name": "CSE - Computer Science & Engineering",
-    },
-    "csc_hod": {
-        "password_hash": generate_password_hash(os.getenv("PASS_CSC_HOD", "csc@hod2026")),
-        "role": "hod",
-        "department_code": "CSC",
-        "department_name": "CSC - CSE (Cyber Security)",
-    },
-    "mech_hod": {
-        "password_hash": generate_password_hash(os.getenv("PASS_MECH_HOD", "mech@hod2026")),
-        "role": "hod",
-        "department_code": "MECH",
-        "department_name": "MECH - Mechanical Engineering",
-    },
-    "civil_hod": {
-        "password_hash": generate_password_hash(os.getenv("PASS_CIVIL_HOD", "civil@hod2026")),
-        "role": "hod",
-        "department_code": "CIVIL",
-        "department_name": "CIVIL - Civil Engineering",
+        "department_name": "Computer Science & Engineering",
     },
     "eee_hod": {
         "password_hash": generate_password_hash(os.getenv("PASS_EEE_HOD", "eee@hod2026")),
         "role": "hod",
         "department_code": "EEE",
-        "department_name": "EEE - Electrical & Electronics Engineering",
+        "department_name": "Electrical & Electronics Engineering",
     },
     "ece_hod": {
         "password_hash": generate_password_hash(os.getenv("PASS_ECE_HOD", "ece@hod2026")),
         "role": "hod",
         "department_code": "ECE",
-        "department_name": "ECE - Electronics & Communication Engineering",
+        "department_name": "Electronics & Communication Engineering",
+    },
+    "csm_hod": {
+        "password_hash": generate_password_hash(os.getenv("PASS_CSM_HOD", "csm@hod2026")),
+        "role": "hod",
+        "department_code": "CSM",
+        "department_name": "CSE (AI & ML)",
     },
     "admin": {
         "password_hash": generate_password_hash(os.getenv("PASS_ADMIN", "admin@2026")),
         "role": "admin",
-        "department_code": "ALL",
-        "department_name": "All Departments",
+        "department_code": "CSD",
+        "department_name": "System Administrator",
     },
 }
 

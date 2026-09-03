@@ -676,6 +676,8 @@ class FaceEngine:
                         if max_idx < len(profile.angles):
                             best_matched_angle = profile.angles[max_idx]
 
+                equiv_distance = float(max(0.0, 1.0 - highest_similarity))
+
                 # Biometric Anti-Spoofing & Liveness Check
                 face_crop = bgr_frame[top:bottom, left:right]
                 is_live, liveness_score = compute_liveness(face_crop, getattr(face, "kps", None))

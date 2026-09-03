@@ -72,13 +72,26 @@ app = Flask(__name__, template_folder=template_dir)
 config = Config()
 app.secret_key = config.SECRET_KEY
 
+# Security & Session Hardening
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,       # Prevents JavaScript from reading session cookies (Anti-XSS)
+    SESSION_COOKIE_SAMESITE="Lax",      # Prevents Cross-Site Request Forgery (CSRF)
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
+)
+
 
 @app.after_request
-def apply_cors_headers(response):
+def apply_security_headers(response):
     origins = getattr(config, "CORS_ORIGINS", "*")
     response.headers["Access-Control-Allow-Origin"] = origins
     response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT, DELETE"
+
+    # OWASP Top 10 Security Hardening Headers
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"           # Anti-Clickjacking
+    response.headers["X-Content-Type-Options"] = "nosniff"        # Anti-MIME Sniffing
+    response.headers["X-XSS-Protection"] = "1; mode=block"        # Cross-Site Scripting Filter
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     return response
 
 face_engine_manager: FaceEngineManager = None
@@ -955,13 +968,72 @@ def api_timetable_entries(entry_id=None):
     return jsonify({"success": ok, "message": msg})
 
 
+# ── Anti-Brute-Force Rate Limiting & Account Protection ─────────────
+_failed_login_attempts: Dict[str, List[float]] = {}
+_ip_lockouts: Dict[str, float] = {}
+_MAX_FAILED_LOGINS = 5
+_LOCKOUT_WINDOW_SECONDS = 300   # 5 minutes window
+_LOCKOUT_DURATION_SECONDS = 600 # 10 minutes lockout
+
+
+def _get_request_client_ip() -> str:
+    """Safely extract client IP behind Cloudflare, Nginx, or Direct."""
+    return (
+        request.headers.get("CF-Connecting-IP")
+        or request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+        or request.remote_addr
+        or "127.0.0.1"
+    )
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login_page():
     if session.get("logged_in"): return redirect(url_for("dashboard"))
+    client_ip = _get_request_client_ip()
+    now = time.time()
+
+    # 1. Check if IP is currently under lockout
+    if client_ip in _ip_lockouts:
+        if now < _ip_lockouts[client_ip]:
+            remaining_mins = int((_ip_lockouts[client_ip] - now) / 60) + 1
+            return render_template(
+                "login.html",
+                error=f"Security Lockout: Too many failed login attempts. IP temporarily locked for {remaining_mins} minute(s)."
+            ), 429
+        else:
+            del _ip_lockouts[client_ip]
+            _failed_login_attempts.pop(client_ip, None)
+
     if request.method == "POST":
-        u = authenticate_user(request.form.get("username", "").strip(), request.form.get("password", ""))
-        if u: login_user(u); return redirect(url_for("dashboard"))
-        return render_template("login.html", error="Invalid credentials.")
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+
+        u = authenticate_user(username, password)
+        if u:
+            # Login successful: reset failed count
+            _failed_login_attempts.pop(client_ip, None)
+            login_user(u)
+            return redirect(url_for("dashboard"))
+
+        # Login failed: record attempt timestamp
+        attempts = [t for t in _failed_login_attempts.get(client_ip, []) if now - t < _LOCKOUT_WINDOW_SECONDS]
+        attempts.append(now)
+        _failed_login_attempts[client_ip] = attempts
+
+        if len(attempts) >= _MAX_FAILED_LOGINS:
+            _ip_lockouts[client_ip] = now + _LOCKOUT_DURATION_SECONDS
+            logger.warning("SECURITY ALERT: Brute-force attack mitigated. IP %s locked out for 10 minutes.", client_ip)
+            return render_template(
+                "login.html",
+                error="Security Alert: 5 consecutive failed attempts detected. Access from your IP is locked for 10 minutes."
+            ), 429
+
+        remaining = _MAX_FAILED_LOGINS - len(attempts)
+        return render_template(
+            "login.html",
+            error=f"Invalid credentials. ({remaining} attempt(s) remaining before security lockout)"
+        )
+
     return render_template("login.html", error=None)
 
 @app.route("/logout")

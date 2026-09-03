@@ -543,16 +543,20 @@ class FaceEngine:
                 }
                 return (normed_emb, pose, meta)
             else:
-                import face_recognition
-                rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-                locs = face_recognition.face_locations(rgb, number_of_times_to_upsample=0)
-                if not locs:
-                    locs = face_recognition.face_locations(rgb, number_of_times_to_upsample=1)
-                if not locs:
+                try:
+                    import face_recognition
+                    rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                    locs = face_recognition.face_locations(rgb, number_of_times_to_upsample=0)
+                    if not locs:
+                        locs = face_recognition.face_locations(rgb, number_of_times_to_upsample=1)
+                    if not locs:
+                        return None
+                    encs = face_recognition.face_encodings(rgb, locs)
+                    meta = {"total_faces": len(locs), "background_faces_excluded": max(0, len(locs) - 1), "is_multi_face": len(locs) > 1}
+                    return (encs[0], None, meta) if encs else None
+                except ImportError:
+                    logger.warning("Neither InsightFace nor face_recognition is available.")
                     return None
-                encs = face_recognition.face_encodings(rgb, locs)
-                meta = {"total_faces": len(locs), "background_faces_excluded": max(0, len(locs) - 1), "is_multi_face": len(locs) > 1}
-                return (encs[0], None, meta) if encs else None
 
         except Exception as e:
             logger.warning("SKIP [%s]: Error processing image: %s", label_name, e)

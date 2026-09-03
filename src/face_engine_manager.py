@@ -7,7 +7,10 @@ import logging
 import shutil
 import cv2
 import numpy as np
-import face_recognition
+try:
+    import face_recognition
+except ImportError:
+    face_recognition = None
 from typing import Dict, List, Optional, Tuple, Union
 
 from face_engine import FaceEngine
@@ -68,21 +71,35 @@ class FaceEngineManager:
             img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
             if img is None: return False, "Invalid image format."
 
-            h, w = img.shape[:2]; rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            raw_locs = face_recognition.face_locations(rgb_img, number_of_times_to_upsample=0)
+            h, w = img.shape[:2]
+            final_faces = []
 
-            final_faces = []; final_encs = []
-            sorted_locs = sorted(raw_locs, key=lambda x: (x[2]-x[0])*(x[1]-x[3]), reverse=True)
-            for f in sorted_locs:
-                if (f[2]-f[0]) < (h * 0.12): continue # Ignore small noise
-                encs = face_recognition.face_encodings(rgb_img, [f])
-                if not encs: continue
-
-                is_dup = False
-                for existing in final_faces:
-                    if get_iou(f, existing) > 0.3: is_dup = True; break
-                if not is_dup:
-                    final_faces.append(f); final_encs.append(encs[0])
+            # 1. Prefer InsightFace SCRFD detector (deep learning, fast & pre-cached)
+            from face_engine import get_insightface_app
+            ins_app = get_insightface_app()
+            if ins_app is not None:
+                detected = ins_app.get(img)
+                for det in detected:
+                    box = det.bbox.astype(int)
+                    top = max(0, int(box[1]))
+                    right = min(w, int(box[2]))
+                    bottom = min(h, int(box[3]))
+                    left = max(0, int(box[0]))
+                    if (bottom - top) >= (h * 0.10):
+                        final_faces.append((top, right, bottom, left))
+            elif face_recognition is not None:
+                rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                raw_locs = face_recognition.face_locations(rgb_img, number_of_times_to_upsample=0)
+                sorted_locs = sorted(raw_locs, key=lambda x: (x[2]-x[0])*(x[1]-x[3]), reverse=True)
+                for f in sorted_locs:
+                    if (f[2]-f[0]) >= (h * 0.12):
+                        final_faces.append(f)
+            else:
+                cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                cv_faces = cascade.detectMultiScale(gray, 1.2, 5)
+                for (x, y, fw, fh) in cv_faces:
+                    final_faces.append((y, x + fw, y + fh, x))
 
             if len(final_faces) == 0: return False, "No face detected. Center your face."
             if len(final_faces) > 1: return False, f"Multiple faces ({len(final_faces)}) detected."

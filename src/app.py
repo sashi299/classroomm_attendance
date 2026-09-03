@@ -15,7 +15,7 @@ import calendar
 import logging
 import threading
 from datetime import date, datetime, timedelta
-from typing import Generator, List
+from typing import Generator, List, Dict, Tuple, Optional
 
 import cv2
 import numpy as np
